@@ -83,7 +83,7 @@ class FisherCMB(object):
 
 		if 'KK' in self.obs:
 			# Assumes nlkk_ starts from l = 0
-			l_, nlkk_ = np.loadtxt('nlkk_planck2015.dat', unpack=True)
+			l_, nlkk_ = np.loadtxt('../data/nlkk_planck2015.dat', unpack=True)
 			self.NlKK[:nlkk_.size] = nlkk_
 			self.NlKK[:self.lminK] = 1.e40
 			self.NlKK[self.lmaxK+1:] = 1.e40
@@ -191,6 +191,12 @@ class FisherCMB(object):
 						dcl_j = self._dcldp[j][l,3]
 						tmp += np.nan_to_num(dcl_i * inv_cov * dcl_j)
 
+					elif self.obs == ['KK']:
+						inv_cov = 1./cov
+						dcl_i = self._dcldp[i][l,4]
+						dcl_j = self._dcldp[j][l,4]
+						tmp += np.nan_to_num(dcl_i * inv_cov * dcl_j)
+
 				_fullMat[i,j] = tmp
 				_fullMat[j,i] = _fullMat[i,j]
 				del tmp
@@ -237,7 +243,7 @@ class FisherCMB(object):
 					step = self.step
 
 			par_cosmo[p] = par_cosmo[p] + step
-			print '\t %f' %par_cosmo[p]
+			print '\t %3.2e' %par_cosmo[p]
 
 			clsp = self._computeObservables(par_cosmo)
 
@@ -253,7 +259,7 @@ class FisherCMB(object):
 				if par_cosmo[p] == 0:
 					step = self.step
 			par_cosmo[p] = par_cosmo[p] - step
-			print '\t %f' %par_cosmo[p]
+			print '\t %3.2e' %par_cosmo[p]
 
 
 			clsm = self._computeObservables(par_cosmo)
@@ -466,7 +472,7 @@ class FisherCMB(object):
 		return pos, a*alpha, b*alpha, theta
 
 
-	def plot(self, p1, p2, nstd=1, ax=None, howmanysigma=[1,2], labels=False, **kwargs):
+	def plot(self, p1, p2, nstd=1, ax=None, howmanysigma=[1,2], labels=None, tag=None, **kwargs):
 		""" 
 		Plots confidence contours corresponding to the parameters provided.
 		
@@ -493,7 +499,13 @@ class FisherCMB(object):
 		if labels is None:
 			ax.set_xlabel(p1)
 			ax.set_ylabel(p2)
+		else:
+			ax.set_xlabel(labels[0], size=14)
+			ax.set_ylabel(labels[1], size=14)
 
-		plt.plot(pos, 'r+', mew=2.)
+		if tag is not None:
+			ax.legend([ellip], tag)
+
+		ax.plot(pos, 'w+', mew=2.)
 		plt.draw()
 		return ellip

@@ -355,8 +355,8 @@ class Cosmo(object):
 			cls[:,i] *= fact
 
 		# if self.pars.DoLensing != 0:
-		clkk = spectra['lens_potential'][:,0] * (2.*np.pi/4.) * 4./(ls*(ls+1))**2
-		cltk = spectra['lens_potential'][:,1] * (2.*np.pi/2.) / np.sqrt(ls*(ls+1.)) * self.pars.TCMB*1.e6
+		clkk = spectra['lens_potential'][:,0] * np.pi / 2.#* (2.*np.pi/4.) * 4./(ls*(ls+1))**2
+		cltk = spectra['lens_potential'][:,1] * np.pi * np.sqrt(ls*(ls+1)) * self.pars.TCMB*1.e6 #* (2.*np.pi/2.) / np.sqrt(ls*(ls+1.)) * self.pars.TCMB*1.e6
 		clkk = np.nan_to_num(clkk)
 		cltk = np.nan_to_num(cltk)
 		cls  = np.column_stack((cls,clkk,cltk))
