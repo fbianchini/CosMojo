@@ -4,14 +4,258 @@ from astropy import constants as const
 from defaults import *
 from utils import nl_cmb
 from universe import Cosmo
+from pairwise import BinPairwise
 import copy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
-class FisherCMB(object):
+class Fisher(object):
+	def __init__(self, fid_cosmo=None, 
+					   fid_surv=None, 
+					   params=None, 
+					   priors={}, 
+					   steps={}):
+
+		self.fid_cosmo = fid_cosmo.copy()
+		self.fid_surv = fid_surv.copy()
+		self.params = []
+		self.priors = {}
+		self.steps  = {}
+		self.step = 0.003
+
+	def _computeObservables(self):
+		pass
+
+	def _computeCovariance(self):
+		pass
+
+	def _computeFullMatrix(self):
+		pass
+
+	def _computeDerivatives(self):
+		pass
+
+	def Fij(self, param_i, param_j):
+		"""
+		Returns the matrix element of the Fisher matrix for parameters
+		param_i and param_j
+		"""
+		i = self.params.index(param_i)
+		j = self.params.index(param_j)
+
+		return self.mat[i, j]
+
+	def invFij(self, param_i, param_j):
+		"""
+		Returns the matrix element of the inverse Fisher matrix for
+		parameters param_i and param_j
+		"""
+		i = self.params.index(param_i)
+		j = self.params.index(param_j)
+
+		return self.invmat[i, j]
+
+	def sigma_fix(self, param):
+		return 1.0 / np.sqrt(self.Fij(param, param))
+
+	def sigma_marg(self, param):
+		return np.sqrt(self.invFij(param, param))
+
+	def _marginalise(self, params):
+		""" 
+		Marginalises the Fisher matrix over unwanted parameters.
+		
+		Parameters
+		----------
+		params: list
+			List of parameters that should *not* be marginalised over.
+		
+		Returns
+		-------
+		(mat, invmat): ndarray
+			Marginalised Fisher matrix and its invers
+		"""
+		# Builds inverse matrix
+		marg_inv = np.zeros((len(params), len(params)))
+		for i in xrange(len(params)):
+			indi = self.params.index(params[i])
+			for j in xrange(len(params)):
+				indj = self.params.index(params[j])
+				marg_inv[i, j] = self.invmat[indi, indj]
+
+		marg_mat = linalg.inv(marg_inv)
+
+		return (marg_mat, marg_inv)
+
+	# @property
+	# def FoM_DETF(self):
+	# 	"""
+	# 		Computes the figure of merit from the Dark Energy Task Force
+	# 		Albrecht et al 2006
+	# 		FoM = 1/sqrt(det(F^-1_{w0,wa}))
+	# 	"""
+	# 	det = (self.invFij('w0', 'w0') * self.invFij('wa', 'wa') -
+	# 		   self.invFij('wa', 'w0') * self.invFij('w0', 'wa'))
+	# 	return 1.0 / sqrt(det)
+
+	@property
+	def FoM(self):
+		"""
+		Total figure of merit : ln (1/det(F^{-1}))
+		"""
+		return np.log(1.0 / abs(linalg.det(self.invmat)))
+
+	@property
+	def invmat(self):
+		"""
+		Returns the inverse fisher matrix
+		"""
+		if self._invmat is None:
+			self._invmat = linalg.inv(self.mat)
+		return self._invmat
+
+	@property
+	def mat(self):
+		"""
+		Returns the fisher matrix marginalised over nuisance parameters
+		"""
+		# If the matrix is not already computed, compute it
+		if self._mat is None:
+			self._fullMat = self._computeFullMatrix()
+			self._fullInvMat = linalg.inv(self._fullMat)
+
+			self._invmat = self._fullInvMat.copy()
+			self._mat = self._fullMat.copy()
+
+			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
+			# self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
+			# self._mat = linalg.inv(self._invmat)
+
+		return self._mat
+				
+	def corner_plot(self, nstd=1, labels=None, **kwargs):
+		""" 
+		Makes a corner plot including all the parameters in the Fisher analysis
+		"""
+
+		if labels is None:
+			labels = self.params
+
+		for i in xrange(len(self.params)):
+			for j in range(i):
+				ax = plt.subplot(len(self.params)-1, len(self.params)-1 , (i - 1)*(len(self.params)-1) + (j+1))
+
+				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, labels=False, **kwargs)
+
+				if i == len(self.params) - 1:
+					ax.set_xlabel(labels[j])
+				else:
+					ax.set_xticklabels([])
+				if j == 0:
+					ax.set_ylabel(labels[i])
+				else:
+					ax.set_yticklabels([])
+
+		plt.subplots_adjust(wspace=0)
+		plt.subplots_adjust(hspace=0)
+
+	def ellipse_pars(self, p1, p2, howmanysigma=1):
+		params = [p1, p2]
+
+		def eigsorted(cov):
+			vals, vecs = linalg.eigh(cov)
+			order = vals.argsort()[::-1]
+			return vals[order], vecs[:, order]
+
+		mat, COV = self._marginalise(params)
+
+		# First find the fiducial value for the parameter in question
+		fid_param = None
+		pos = [0, 0]
+		for p in params:
+			if p in dir(self.fid_surv):
+				fid_param = self.fid_surv[p]
+			else:
+				fid_param = self.fid_cosmo[p]
+				if p == 'As':
+					fid_param *= 1e9 
+
+			pos[params.index(p)] = fid_param
+
+		vals, vecs = eigsorted(COV)
+		theta = np.arctan2(*vecs[:, 0][::-1])
+		theta = np.degrees(theta)
+
+		assert COV.shape == (2,2)
+
+		confsigma_dic = {1:2.3, 2:6.17, 3: 11.8}
+
+		sig_x2, sig_y2 = COV[0,0], COV[1,1]
+		sig_xy = COV[0,1]
+
+		t1 = (sig_x2 + sig_y2)/2.
+		t2 = np.sqrt( (sig_x2 - sig_y2)**2. /4. + sig_xy**2. )
+		a = np.sqrt( abs(t1 + t2) )
+		b = np.sqrt( abs(t1 - t2) )
+
+		t1 = 2 * sig_xy
+		t2 = sig_x2 - sig_y2
+
+		theta = np.degrees(np.arctan2(t1,t2) / 2.)
+		alpha = np.sqrt(confsigma_dic[howmanysigma])
+
+		return pos, a*alpha, b*alpha, theta
+
+	def plot(self, p1, p2, nstd=1, ax=None, howmanysigma=[1,2], labels=None, tag=None, **kwargs):
+		""" 
+		Plots confidence contours corresponding to the parameters provided.
+		
+		Parameters
+		----------
+		"""
+		if ax is None:
+			ax = plt.gca()
+
+		for sigmas in howmanysigma: 
+			pos, Aalpha, Balpha, theta = self.ellipse_pars(p1, p2, sigmas)
+
+			ellip = Ellipse(xy=pos, width=Aalpha, height=Balpha, angle=theta, alpha=1./sigmas, **kwargs)
+
+			ax.add_artist(ellip)
+			# sz = np.max(width, height)
+			s1 = 1.5*nstd*self.sigma_marg(p1)
+			s2 = 1.5*nstd*self.sigma_marg(p2)
+			ax.set_xlim(pos[0] - s1, pos[0] + s1)
+			ax.set_ylim(pos[1] - s2, pos[1] + s2)
+			#ax.set_xlim(pos[0] - sz, pos[0] + sz)
+			#ax.set_ylim(pos[1] - sz, pos[1] + sz)
+
+		if labels is None:
+			ax.set_xlabel(p1)
+			ax.set_ylabel(p2)
+		elif labels is False:
+			pass
+		else:
+			ax.set_xlabel(labels[0], size=14)
+			ax.set_ylabel(labels[1], size=14)
+
+		if tag is not None:
+			ax.legend([ellip], tag)
+
+		ax.plot(pos, 'w+', mew=2.)
+		plt.draw()
+		return ellip
 
 
-	def __init__(self, fid_cosmo, fid_surv, params, obs=['TT','EE','TE'],  priors={}, steps={}):#, margin_params=[]):
+class FisherCMB(Fisher):
+
+
+	def __init__(self, fid_cosmo, 
+					   fid_surv, 
+					   params, 
+					   obs=['TT','EE','TE'],  
+					   priors={}, 
+					   steps={}):#, margin_params=[]):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
@@ -19,12 +263,13 @@ class FisherCMB(object):
 		* params : list of Fisher analysis parameters
 		"""
 
-		self.step = 0.003
-		self.fid_cosmo = fid_cosmo.copy()
-		self.fid_surv = fid_surv.copy()
-		self.params = []
-		self.priors = {}
-		self.steps  = {}
+		super(FisherCMB, self).__init__(fid_cosmo, fid_surv, params, priors, steps)
+
+		# self.fid_cosmo = fid_cosmo.copy()
+		# self.fid_surv = fid_surv.copy()
+		# self.params = []
+		# self.priors = {}
+		# self.steps  = {}
 		self.obs = obs
 
 		# Few checks on survey params -> initialize to default value if not present
@@ -277,32 +522,6 @@ class FisherCMB(object):
 
 		return dcldp
 
-	def Fij(self, param_i, param_j):
-		"""
-		Returns the matrix element of the Fisher matrix for parameters
-		param_i and param_j
-		"""
-		i = self.params.index(param_i)
-		j = self.params.index(param_j)
-
-		return self.mat[i, j]
-
-	def invFij(self, param_i, param_j):
-		"""
-		Returns the matrix element of the inverse Fisher matrix for
-		parameters param_i and param_j
-		"""
-		i = self.params.index(param_i)
-		j = self.params.index(param_j)
-
-		return self.invmat[i, j]
-
-	def sigma_fix(self, param):
-		return 1.0 / np.sqrt(self.Fij(param, param))
-
-	def sigma_marg(self, param):
-		return np.sqrt(self.invFij(param, param))
-
 	def sub_matrix(self, subparams):
 		"""
 		Extracts a submatrix from the current fisher matrix using the
@@ -331,209 +550,31 @@ class FisherCMB(object):
 
 		return newFisher
 
-	def _marginalise(self, params):
-		""" 
-		Marginalises the Fisher matrix over unwanted parameters.
-		
-		Parameters
-		----------
-		params: list
-			List of parameters that should *not* be marginalised over.
-		
-		Returns
-		-------
-		(mat, invmat): ndarray
-			Marginalised Fisher matrix and its invers
-		"""
-		# Builds inverse matrix
-		marg_inv = np.zeros((len(params), len(params)))
-		for i in xrange(len(params)):
-			indi = self.params.index(params[i])
-			for j in xrange(len(params)):
-				indj = self.params.index(params[j])
-				marg_inv[i, j] = self.invmat[indi, indj]
-
-		marg_mat = linalg.inv(marg_inv)
-
-		return (marg_mat, marg_inv)
-
-	# @property
-	# def FoM_DETF(self):
-	# 	"""
-	# 		Computes the figure of merit from the Dark Energy Task Force
-	# 		Albrecht et al 2006
-	# 		FoM = 1/sqrt(det(F^-1_{w0,wa}))
-	# 	"""
-	# 	det = (self.invFij('w0', 'w0') * self.invFij('wa', 'wa') -
-	# 		   self.invFij('wa', 'w0') * self.invFij('w0', 'wa'))
-	# 	return 1.0 / sqrt(det)
-
-	@property
-	def FoM(self):
-		"""
-			Total figure of merit : ln (1/det(F^{-1}))
-		"""
-		return np.log(1.0 / abs(linalg.det(self.invmat)))
-
-	@property
-	def invmat(self):
-		"""
-		Returns the inverse fisher matrix
-		"""
-		if self._invmat is None:
-			self._invmat = linalg.inv(self.mat)
-		return self._invmat
-
-	@property
-	def mat(self):
-		"""
-		Returns the fisher matrix marginalised over nuisance parameters
-		"""
-		# If the matrix is not already computed, compute it
-		if self._mat is None:
-			self._fullMat = self._computeFullMatrix()
-			self._fullInvMat = linalg.inv(self._fullMat)
-
-			self._invmat = self._fullInvMat.copy()
-			self._mat = self._fullMat.copy()
-
-			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
-			# self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
-			# self._mat = linalg.inv(self._invmat)
-
-		return self._mat
-				
-	def corner_plot(self, nstd=1, labels=None, **kwargs):
-		""" 
-		Makes a corner plot including all the parameters in the Fisher analysis
-		"""
-
-		if labels is None:
-			labels = self.params
-
-		for i in xrange(len(self.params)):
-			for j in range(i):
-				ax = plt.subplot(len(self.params)-1, len(self.params)-1 , (i - 1)*(len(self.params)-1) + (j+1))
-
-				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, labels=False, **kwargs)
-
-				if i == len(self.params) - 1:
-					ax.set_xlabel(labels[j])
-				else:
-					ax.set_xticklabels([])
-				if j == 0:
-					ax.set_ylabel(labels[i])
-				else:
-					ax.set_yticklabels([])
-
-		plt.subplots_adjust(wspace=0)
-		plt.subplots_adjust(hspace=0)
-
-	def ellipse_pars(self, p1, p2, howmanysigma=1):
-		params = [p1, p2]
-
-		def eigsorted(cov):
-			vals, vecs = linalg.eigh(cov)
-			order = vals.argsort()[::-1]
-			return vals[order], vecs[:, order]
-
-		mat, COV = self._marginalise(params)
-
-		# First find the fiducial value for the parameter in question
-		fid_param = None
-		pos = [0, 0]
-		for p in params:
-			if p in dir(self.fid_surv):
-				fid_param = self.fid_surv[p]
-			else:
-				fid_param = self.fid_cosmo[p]
-				if p == 'As':
-					fid_param *= 1e9 
-
-			pos[params.index(p)] = fid_param
-
-		vals, vecs = eigsorted(COV)
-		theta = np.arctan2(*vecs[:, 0][::-1])
-		theta = np.degrees(theta)
-
-		assert COV.shape == (2,2)
-
-		confsigma_dic = {1:2.3, 2:6.17, 3: 11.8}
-
-		sig_x2, sig_y2 = COV[0,0], COV[1,1]
-		sig_xy = COV[0,1]
-
-		t1 = (sig_x2 + sig_y2)/2.
-		t2 = np.sqrt( (sig_x2 - sig_y2)**2. /4. + sig_xy**2. )
-		a = np.sqrt( abs(t1 + t2) )
-		b = np.sqrt( abs(t1 - t2) )
-
-		t1 = 2 * sig_xy
-		t2 = sig_x2 - sig_y2
-
-		theta = np.degrees(np.arctan2(t1,t2) / 2.)
-		alpha = np.sqrt(confsigma_dic[howmanysigma])
-
-		return pos, a*alpha, b*alpha, theta
-
-
-	def plot(self, p1, p2, nstd=1, ax=None, howmanysigma=[1,2], labels=None, tag=None, **kwargs):
-		""" 
-		Plots confidence contours corresponding to the parameters provided.
-		
-		Parameters
-		----------
-		"""
-		if ax is None:
-			ax = plt.gca()
-
-		for sigmas in howmanysigma: 
-			pos, Aalpha, Balpha, theta = self.ellipse_pars(p1, p2, sigmas)
-
-			ellip = Ellipse(xy=pos, width=Aalpha, height=Balpha, angle=theta, alpha=1./sigmas, **kwargs)
-
-			ax.add_artist(ellip)
-			# sz = np.max(width, height)
-			s1 = 1.5*nstd*self.sigma_marg(p1)
-			s2 = 1.5*nstd*self.sigma_marg(p2)
-			ax.set_xlim(pos[0] - s1, pos[0] + s1)
-			ax.set_ylim(pos[1] - s2, pos[1] + s2)
-			#ax.set_xlim(pos[0] - sz, pos[0] + sz)
-			#ax.set_ylim(pos[1] - sz, pos[1] + sz)
-
-		if labels is None:
-			ax.set_xlabel(p1)
-			ax.set_ylabel(p2)
-		elif labels is False:
-			pass
-		else:
-			ax.set_xlabel(labels[0], size=14)
-			ax.set_ylabel(labels[1], size=14)
-
-		if tag is not None:
-			ax.legend([ellip], tag)
-
-		ax.plot(pos, 'w+', mew=2.)
-		plt.draw()
-		return ellip
-
 class FisherPairwise(object):
 
-
-	def __init__(self, fid_cosmo, fid_surv, params, priors={}, steps={}, cv=None, cs=None, cm=None, cov=None):#, margin_params=[]):
+	def __init__(self, fid_cosmo, 
+					   fid_surv, 
+					   params, 
+					   priors={}, 
+					   steps={}, 
+					   cv=None, 
+					   cs=None, 
+					   cm=None, 
+					   cov=None):#, margin_params=[]):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
 		* fid_survey : dictionary => {M_min, fsky, sigma_v, zmin, zmax, Nz, rmin, rmax, Nr}
 		* params : list of Fisher analysis parameters
 		"""
+		super(FisherPairwise, self).__init__(fid_cosmo, fid_surv, params, priors, steps)
 
-		self.step = 0.003
-		self.fid_cosmo = fid_cosmo.copy()
-		self.fid_surv = fid_surv.copy()
-		self.params = []
-		self.priors = {}
-		self.steps  = {}
+		# self.step = 0.003
+		# self.fid_cosmo = fid_cosmo.copy()
+		# self.fid_surv = fid_surv.copy()
+		# self.params = []
+		# self.priors = {}
+		# self.steps  = {}
 
 		# Few checks on survey params -> initialize to default value if not present
 		for key, val in default_pw_survey_dict.iteritems():
@@ -599,7 +640,7 @@ class FisherPairwise(object):
 		else:
 			self.cov = cov
 
-		self.inv_cov = {i : linalg.pinv2(self.cov[i]) for i in xrange(self.Nz)}
+		self.inv_cov = {i : linalg.inv(self.cov[i]) for i in xrange(self.Nz)}
 		# self.cov = linalg.block_diag(*cov.values())
 		# self.inv_cov = linalg.pinv2(self.cov)
 
@@ -739,32 +780,6 @@ class FisherPairwise(object):
 
 		return dvdp
 
-	def Fij(self, param_i, param_j):
-		"""
-			Returns the matrix element of the Fisher matrix for parameters
-			param_i and param_j
-		"""
-		i = self.params.index(param_i)
-		j = self.params.index(param_j)
-
-		return self.mat[i, j]
-
-	def invFij(self, param_i, param_j):
-		"""
-			Returns the matrix element of the inverse Fisher matrix for
-			parameters param_i and param_j
-		"""
-		i = self.params.index(param_i)
-		j = self.params.index(param_j)
-
-		return self.invmat[i, j]
-
-	def sigma_fix(self, param):
-		return 1.0 / np.sqrt(self.Fij(param, param))
-
-	def sigma_marg(self, param):
-		return np.sqrt(self.invFij(param, param))
-
 	def sub_matrix(self, subparams):
 		"""
 		Extracts a submatrix from the current fisher matrix using the
@@ -789,178 +804,7 @@ class FisherPairwise(object):
 				indj = self.params.index(params[j])
 				newFisher._mat[i, j] = self.mat[indi, indj]
 
-		newFisher._invmat = linalg.pinv2(newFisher._mat)
+		newFisher._invmat = linalg.inv(newFisher._mat)
 
 		return newFisher
 
-	def _marginalise(self, params):
-		r""" Marginalises the Fisher matrix over unwanted parameters.
-		Parameters
-		----------
-		params: list
-			List of parameters that should *not* be marginalised over.
-		Returns
-		-------
-		(mat, invmat): ndarray
-			Marginalised Fisher matrix and its invers
-		"""
-		# Builds inverse matrix
-		marg_inv = np.zeros((len(params), len(params)))
-		for i in xrange(len(params)):
-			indi = self.params.index(params[i])
-			for j in xrange(len(params)):
-				indj = self.params.index(params[j])
-				marg_inv[i, j] = self.invmat[indi, indj]
-
-		marg_mat = linalg.pinv2(marg_inv)
-
-		return (marg_mat, marg_inv)
-		
-
-	# # @property
-	# def FoM_DETF(self):
-	# 	"""
-	# 		Computes the figure of merit from the Dark Energy Task Force
-	# 		Albrecht et al 2006
-	# 		FoM = 1/sqrt(det(F^-1_{w0,wa}))
-	# 	"""
-	# 	det = (self.invFij('w0', 'w0') * self.invFij('wa', 'wa') -
-	# 		   self.invFij('wa', 'w0') * self.invFij('w0', 'wa'))
-	# 	return 1.0 / sqrt(det)
-
-	@property
-	def FoM(self):
-		"""
-			Total figure of merit : ln (1/det(F^{-1}))
-		"""
-		return np.log(1.0 / abs(linalg.det(self.invmat)))
-
-	@property
-	def invmat(self):
-		"""
-		Returns the inverse fisher matrix
-		"""
-		if self._invmat is None:
-			self._invmat = linalg.pinv2(self.mat)
-		return self._invmat
-
-	@property
-	def mat(self):
-		"""
-		Returns the fisher matrix marginalised over nuisance parameters
-		"""
-		# If the matrix is not already computed, compute it
-		if self._mat is None:
-			self._fullMat = self._computeFullMatrix()
-			self._fullInvMat = linalg.pinv2(self._fullMat)
-
-			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
-			self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
-			self._mat = linalg.pinv2(self._invmat)
-
-		return self._mat
-		
-	def corner_plot(self, nstd=2, labels=None, **kwargs):
-		""" 
-		Makes a corner plot including all the parameters in the Fisher analysis
-		"""
-
-		if labels is None:
-			labels = self.params
-
-		for i in xrange(len(self.params)):
-			for j in range(i):
-				ax = plt.subplot(len(self.params)-1, len(self.params)-1 , (i - 1)*(len(self.params)-1) + (j+1))
-				if i == len(self.params) - 1:
-					ax.set_xlabel(labels[j])
-				else:
-					ax.set_xticklabels([])
-				if j == 0:
-					ax.set_ylabel(labels[i])
-				else:
-					ax.set_yticklabels([])
-
-				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, **kwargs)
-
-		plt.subplots_adjust(wspace=0)
-		plt.subplots_adjust(hspace=0)
-
-	def ellipse_pars(self, p1, p2, howmanysigma=1):
-		params = [p1, p2]
-
-		def eigsorted(cov):
-			vals, vecs = linalg.eigh(cov)
-			order = vals.argsort()[::-1]
-			return vals[order], vecs[:, order]
-
-		mat, COV = self._marginalise(params)
-
-		# First find the fiducial value for the parameter in question
-		fid_param = None
-		pos = [0, 0]
-		for p in params:
-			if p in dir(self.fid_surv):
-				fid_param = self.fid_surv[p]
-			else:
-				fid_param = self.fid_cosmo[p]
-				if p == 'As':
-					fid_param *= 1e9 
-
-			pos[params.index(p)] = fid_param
-
-		vals, vecs = eigsorted(COV)
-		theta = np.arctan2(*vecs[:, 0][::-1])
-		theta = np.degrees(theta)
-
-		assert COV.shape == (2,2)
-
-		confsigma_dic = {1:2.3, 2:6.17, 3: 11.8}
-
-		sig_x2, sig_y2 = COV[0,0], COV[1,1]
-		sig_xy = COV[0,1]
-
-		t1 = (sig_x2 + sig_y2)/2.
-		t2 = np.sqrt( (sig_x2 - sig_y2)**2. /4. + sig_xy**2. )
-		a = np.sqrt( abs(t1 + t2) )
-		b = np.sqrt( abs(t1 - t2) )
-
-		t1 = 2 * sig_xy
-		t2 = sig_x2 - sig_y2
-
-		theta = np.degrees(np.arctan2(t1,t2) / 2.)
-		alpha = np.sqrt(confsigma_dic[howmanysigma])
-
-		return pos, a*alpha, b*alpha, theta
-
-
-	def plot(self, p1, p2, nstd=1, ax=None, howmanysigma=[1,2], labels=False, **kwargs):
-		""" 
-		Plots confidence contours corresponding to the parameters provided.
-		
-		Parameters
-		----------
-		"""
-		if ax is None:
-			ax = plt.gca()
-
-		for sigmas in howmanysigma: 
-			pos, Aalpha, Balpha, theta = self.ellipse_pars(p1, p2, sigmas)
-
-			ellip = Ellipse(xy=pos, width=Aalpha, height=Balpha, angle=theta, alpha=1./sigmas, **kwargs)
-
-			ax.add_artist(ellip)
-			# sz = np.max(width, height)
-			s1 = 1.5*nstd*self.sigma_marg(p1)
-			s2 = 1.5*nstd*self.sigma_marg(p2)
-			ax.set_xlim(pos[0] - s1, pos[0] + s1)
-			ax.set_ylim(pos[1] - s2, pos[1] + s2)
-			#ax.set_xlim(pos[0] - sz, pos[0] + sz)
-			#ax.set_ylim(pos[1] - sz, pos[1] + sz)
-
-		if labels is None:
-			ax.set_xlabel(p1)
-			ax.set_ylabel(p2)
-
-		plt.plot(pos, 'r+', mew=2.)
-		plt.draw()
-		return ellip
