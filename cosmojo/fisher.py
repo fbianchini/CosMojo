@@ -75,10 +75,10 @@ class FisherCMB(object):
 		# Compute noise power spectra
 		self.NlTT = nl_cmb(self.DeltaT, self.fwhm, lmax=self.lmax, lknee=self.lknee, alpha=self.alpha)
 		self.NlPP = nl_cmb(self.DeltaP, self.fwhm, lmax=self.lmax, lknee=self.lknee, alpha=self.alpha)
-		self.NlTT[:self.lminT] = 1.e40
-		self.NlTT[self.lmaxT+1:] = 1.e40
-		self.NlPP[:self.lminP] = 1.e40
-		self.NlPP[self.lmaxP+1:] = 1.e40
+		# self.NlTT[:self.lminT] = 1.e40
+		# self.NlTT[self.lmaxT+1:] = 1.e40
+		# self.NlPP[:self.lminP] = 1.e40
+		# self.NlPP[self.lmaxP+1:] = 1.e40
 		self.NlKK = np.zeros_like(self.NlTT)
 
 		if 'KK' in self.obs:
@@ -107,7 +107,7 @@ class FisherCMB(object):
 		TT = self.cls[l,0] + self.NlTT[l]
 		EE = self.cls[l,1] + self.NlPP[l]
 		TE = self.cls[l,3]
-		KK = self.cls[l,4] + self.NlKK
+		KK = self.cls[l,4] + self.NlKK[l]
 		KT = self.cls[l,5]
 
 		f = 0.5
@@ -157,18 +157,19 @@ class FisherCMB(object):
 		# Computes the fisher Matrix
 		for i in xrange(nparams):
 			for j in xrange(i+1):
+				# print i,j 
 				tmp = 0
 				for l in self.lrange:
 					cov = self._computeCovariance(l)
 					
 					if set(self.obs) == set(['TT','TE','EE']):
-						inv_cov = linalg.pinv2(cov)
+						inv_cov = linalg.inv(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
 					
 					elif set(self.obs) == set(['TT','TE','EE', 'KK', 'KT']):
-						inv_cov = linalg.pinv2(cov)
+						inv_cov = linalg.inv(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3], self._dcldp[i][l,4], self._dcldp[i][l,5]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3], self._dcldp[j][l,4], self._dcldp[j][l,5]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
@@ -198,7 +199,7 @@ class FisherCMB(object):
 						tmp += np.nan_to_num(dcl_i * inv_cov * dcl_j)
 
 				_fullMat[i,j] = tmp
-				_fullMat[j,i] = _fullMat[i,j]
+				_fullMat[j,i] = tmp#_fullMat[i,j]
 				del tmp
 
 		_Priors = np.zeros((nparams,nparams))
@@ -242,7 +243,7 @@ class FisherCMB(object):
 				if par_cosmo[p] == 0:
 					step = self.step
 
-			par_cosmo[p] = par_cosmo[p] + step
+			par_cosmo[p] = par_cosmo[p] + step/2.
 			print '\t %3.2e' %par_cosmo[p]
 
 			clsp = self._computeObservables(par_cosmo)
@@ -255,10 +256,10 @@ class FisherCMB(object):
 			try:
 				step = self.steps[p]
 			except:
-				step = par_cosmo[p] * self.step		
+				step = par_cosmo[p] * self.step	
 				if par_cosmo[p] == 0:
 					step = self.step
-			par_cosmo[p] = par_cosmo[p] - step
+			par_cosmo[p] = par_cosmo[p] - step/2.
 			print '\t %3.2e' %par_cosmo[p]
 
 
@@ -267,10 +268,10 @@ class FisherCMB(object):
 			if p == 'As':
 				step = step * 1e9
 
-			if p == 'w': 
-				dcldp.append( (clsp - clsm)/ (2.0 * step))
-			else:
-				dcldp.append( (clsp - clsm)/ (2.0 * step))		
+			# if p == 'w': 
+			# 	dcldp.append( (clsp - clsm)/ (step))
+			# else:
+			dcldp.append( (clsp - clsm)/ (step))		
 
 			del par_cosmo, clsp, clsm
 
@@ -326,7 +327,7 @@ class FisherCMB(object):
 				indj = self.params.index(params[j])
 				newFisher._mat[i, j] = self.mat[indi, indj]
 
-		newFisher._invmat = linalg.pinv2(newFisher._mat)
+		newFisher._invmat = linalg.inv(newFisher._mat)
 
 		return newFisher
 
@@ -352,7 +353,7 @@ class FisherCMB(object):
 				indj = self.params.index(params[j])
 				marg_inv[i, j] = self.invmat[indi, indj]
 
-		marg_mat = linalg.pinv2(marg_inv)
+		marg_mat = linalg.inv(marg_inv)
 
 		return (marg_mat, marg_inv)
 
@@ -380,7 +381,7 @@ class FisherCMB(object):
 		Returns the inverse fisher matrix
 		"""
 		if self._invmat is None:
-			self._invmat = linalg.pinv2(self.mat)
+			self._invmat = linalg.inv(self.mat)
 		return self._invmat
 
 	@property
@@ -391,15 +392,18 @@ class FisherCMB(object):
 		# If the matrix is not already computed, compute it
 		if self._mat is None:
 			self._fullMat = self._computeFullMatrix()
-			self._fullInvMat = linalg.pinv2(self._fullMat)
+			self._fullInvMat = linalg.inv(self._fullMat)
+
+			self._invmat = self._fullInvMat.copy()
+			self._mat = self._fullMat.copy()
 
 			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
-			self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
-			self._mat = linalg.pinv2(self._invmat)
+			# self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
+			# self._mat = linalg.inv(self._invmat)
 
 		return self._mat
 				
-	def corner_plot(self, nstd=2, labels=None, **kwargs):
+	def corner_plot(self, nstd=1, labels=None, **kwargs):
 		""" 
 		Makes a corner plot including all the parameters in the Fisher analysis
 		"""
@@ -410,6 +414,9 @@ class FisherCMB(object):
 		for i in xrange(len(self.params)):
 			for j in range(i):
 				ax = plt.subplot(len(self.params)-1, len(self.params)-1 , (i - 1)*(len(self.params)-1) + (j+1))
+
+				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, labels=False, **kwargs)
+
 				if i == len(self.params) - 1:
 					ax.set_xlabel(labels[j])
 				else:
@@ -418,8 +425,6 @@ class FisherCMB(object):
 					ax.set_ylabel(labels[i])
 				else:
 					ax.set_yticklabels([])
-
-				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, **kwargs)
 
 		plt.subplots_adjust(wspace=0)
 		plt.subplots_adjust(hspace=0)
@@ -499,6 +504,8 @@ class FisherCMB(object):
 		if labels is None:
 			ax.set_xlabel(p1)
 			ax.set_ylabel(p2)
+		elif labels is False:
+			pass
 		else:
 			ax.set_xlabel(labels[0], size=14)
 			ax.set_ylabel(labels[1], size=14)
