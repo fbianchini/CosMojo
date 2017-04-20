@@ -7,8 +7,8 @@ default_cosmo_dict = {
     "TCMB"   : 2.725, # temperature of the CMB in K at z=0
     "H0"     : 67.7,    # Hubble's constant at z=0 [km/s/Mpc]
     "w"      : -1.0,  # dark energy equation of state (fixed throughout cosmic history)
-    # "wa"     : 0.,  # dark energy equation of state (fixed throughout cosmic history)
-    # "cs2"    : 1.0,  # dark energy equation of state (fixed throughout cosmic history)
+    "wa"     : 0.,  # dark energy equation of state (fixed throughout cosmic history)
+    "cs2"    : 1.0,  # dark energy equation of state (fixed throughout cosmic history)
     "tau"    : 0.09,  # optical depth
     "YHe"    : None,  # Helium mass fraction
     "As"     : 2e-9,   # comoving curvature power at k=piveo_scalar
