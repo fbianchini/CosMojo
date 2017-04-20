@@ -14,7 +14,8 @@ class Fisher(object):
 					   fid_surv=None, 
 					   params=None, 
 					   priors={}, 
-					   steps={}):
+					   steps={},
+					   verbose=False):
 
 		self.fid_cosmo = fid_cosmo.copy()
 		self.fid_surv = fid_surv.copy()
@@ -22,6 +23,7 @@ class Fisher(object):
 		self.priors = {}
 		self.steps  = {}
 		self.step = 0.003
+		self.verbose = verbose
 
 	def _computeObservables(self):
 		pass
@@ -87,16 +89,16 @@ class Fisher(object):
 
 		return (marg_mat, marg_inv)
 
-	# @property
-	# def FoM_DETF(self):
-	# 	"""
-	# 		Computes the figure of merit from the Dark Energy Task Force
-	# 		Albrecht et al 2006
-	# 		FoM = 1/sqrt(det(F^-1_{w0,wa}))
-	# 	"""
-	# 	det = (self.invFij('w0', 'w0') * self.invFij('wa', 'wa') -
-	# 		   self.invFij('wa', 'w0') * self.invFij('w0', 'wa'))
-	# 	return 1.0 / sqrt(det)
+	@property
+	def FoM_DETF(self):
+		"""
+			Computes the figure of merit from the Dark Energy Task Force
+			Albrecht et al 2006
+			FoM = 1/sqrt(det(F^-1_{w0,wa}))
+		"""
+		det = (self.invFij('w', 'w') * self.invFij('wa', 'wa') -
+			   self.invFij('wa', 'w') * self.invFij('w', 'wa'))
+		return 1.0 / np.sqrt(det)
 
 	@property
 	def FoM(self):
@@ -111,7 +113,7 @@ class Fisher(object):
 		Returns the inverse fisher matrix
 		"""
 		if self._invmat is None:
-			self._invmat = linalg.inv(self.mat)
+			self._invmat = linalg.pinv(self.mat)
 		return self._invmat
 
 	@property
@@ -122,7 +124,7 @@ class Fisher(object):
 		# If the matrix is not already computed, compute it
 		if self._mat is None:
 			self._fullMat = self._computeFullMatrix()
-			self._fullInvMat = linalg.inv(self._fullMat)
+			self._fullInvMat = linalg.pinv(self._fullMat)
 
 			self._invmat = self._fullInvMat.copy()
 			self._mat = self._fullMat.copy()
@@ -246,7 +248,6 @@ class Fisher(object):
 		plt.draw()
 		return ellip
 
-
 class FisherCMB(Fisher):
 
 
@@ -255,7 +256,8 @@ class FisherCMB(Fisher):
 					   params, 
 					   obs=['TT','EE','TE'],  
 					   priors={}, 
-					   steps={}):#, margin_params=[]):
+					   steps={},
+					   verbose=False):#, margin_params=[]):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
@@ -263,7 +265,7 @@ class FisherCMB(Fisher):
 		* params : list of Fisher analysis parameters
 		"""
 
-		super(FisherCMB, self).__init__(fid_cosmo, fid_surv, params, priors, steps)
+		super(FisherCMB, self).__init__(fid_cosmo, fid_surv, params, priors, steps, verbose)
 
 		# self.fid_cosmo = fid_cosmo.copy()
 		# self.fid_surv = fid_surv.copy()
@@ -296,8 +298,9 @@ class FisherCMB(Fisher):
 			if key in self.params:
 				self.steps[key] = val
 
-		print self.fid_surv
-		print self.params
+		if self.verbose:
+			print self.fid_surv
+			print self.params
 
 		# Checks that the marginalisation parameters are actually considered
 		# in the Fisher analysis
@@ -315,7 +318,8 @@ class FisherCMB(Fisher):
 		self.lmax = np.max([self.lmaxT, self.lmaxP, self.lmaxK])
 		self.lmin = np.min([self.lminT, self.lminP, self.lminK])
 		self.lrange = np.arange(self.lmin, self.lmax+1)
-		print self.lmin, self.lmax
+		if self.verbose:
+			print self.lmin, self.lmax
 
 		# Compute noise power spectra
 		self.NlTT = nl_cmb(self.DeltaT, self.fwhm, lmax=self.lmax, lknee=self.lknee, alpha=self.alpha)
@@ -362,6 +366,11 @@ class FisherCMB(Fisher):
 				  np.asarray([[TT**2., TE**2., TT*TE           ],
 							  [TE**2., EE**2., EE*TE           ],
 							  [TT*TE,  EE*TE,  f*(TE**2.+TT*EE)]])
+
+		# if set(self.obs) == set(['EE','TE']):
+		# 	mat = 2./((2*l+1)*self.fsky) * \
+		# 		  np.asarray([[TT**2., TE**2., TT*TE           ],
+		# 					  [TT*TE,  EE*TE,  f*(TE**2.+TT*EE)]])
 
 		if set(self.obs) == set(['TT','TE','EE', 'KK', 'KT']):
 			mat = 2./((2*l+1)*self.fsky) * \
@@ -476,7 +485,8 @@ class FisherCMB(Fisher):
 
 		# Computes all the derivatives with respect to the main parameters
 		for p in self.params:
-			print("varying :" + p)
+			if self.verbose:
+				print("varying :" + p)
 
 			# Forward ~~~~~~~~~~~~~~~~~~~~~~
 			par_cosmo = self.fid_cosmo.copy()				
@@ -489,7 +499,9 @@ class FisherCMB(Fisher):
 					step = self.step
 
 			par_cosmo[p] = par_cosmo[p] + step/2.
-			print '\t %3.2e' %par_cosmo[p]
+			
+			if self.verbose:
+				print '\t %3.2e' %par_cosmo[p]
 
 			clsp = self._computeObservables(par_cosmo)
 
@@ -505,7 +517,9 @@ class FisherCMB(Fisher):
 				if par_cosmo[p] == 0:
 					step = self.step
 			par_cosmo[p] = par_cosmo[p] - step/2.
-			print '\t %3.2e' %par_cosmo[p]
+			
+			if self.verbose:
+				print '\t %3.2e' %par_cosmo[p]
 
 
 			clsm = self._computeObservables(par_cosmo)
@@ -550,7 +564,7 @@ class FisherCMB(Fisher):
 
 		return newFisher
 
-class FisherPairwise(object):
+class FisherPairwise(Fisher):
 
 	def __init__(self, fid_cosmo, 
 					   fid_surv, 
@@ -560,14 +574,18 @@ class FisherPairwise(object):
 					   cv=None, 
 					   cs=None, 
 					   cm=None, 
-					   cov=None):#, margin_params=[]):
+					   cov=None,
+					   planck_prior=False,
+					   verbose=False):#, margin_params=[]):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
 		* fid_survey : dictionary => {M_min, fsky, sigma_v, zmin, zmax, Nz, rmin, rmax, Nr}
 		* params : list of Fisher analysis parameters
 		"""
-		super(FisherPairwise, self).__init__(fid_cosmo, fid_surv, params, priors, steps)
+		super(FisherPairwise, self).__init__(fid_cosmo, fid_surv, params, priors, steps, verbose)
+
+		self.planck_prior = planck_prior
 
 		# self.step = 0.003
 		# self.fid_cosmo = fid_cosmo.copy()
@@ -618,6 +636,7 @@ class FisherPairwise(object):
 		# Create a BinPairwise object initializied w/ fiducial cosmo + survey
 		print("...Computing fiducial pairwise...")
 		self.pw = BinPairwise(self.cosmo, self.zmin, self.zmax, self.Nz, self.rmin, self.rmax, self.Nr, fsky=self.fsky, M_min=self.M_min)
+		print("...done...")
 
 		# Precompute covariance matrices
 		print("...Computing covariance matrix...")
@@ -636,13 +655,40 @@ class FisherPairwise(object):
 				self.cov_meas = cm
 
 			self.cov = {i : self.cov_cosmic[i] + self.cov_gauss_shot[i] + self.cov_meas[i] for i in xrange(self.Nz)}
-
+			print("...done...")
 		else:
 			self.cov = cov
+			print("...covariance matrix loaded...")
 
 		self.inv_cov = {i : linalg.inv(self.cov[i]) for i in xrange(self.Nz)}
 		# self.cov = linalg.block_diag(*cov.values())
 		# self.inv_cov = linalg.pinv2(self.cov)
+
+		if self.planck_prior:
+			print("...Calculating Planck priors...")
+			self.params_cmb = copy.copy(self.params)
+			bad = []
+			for p in self.params:
+				if (p in self.fid_surv.keys()) or (p in ['gamma0', 'gammaa']):
+					bad.append(p)
+					# self.params_cmb.remove(p)
+
+			for b in bad:
+				self.params_cmb.remove(b)
+
+			if self.verbose:
+				print self.params_cmb
+
+			fishycmb = FisherCMB(fid_cosmo=self.fid_cosmo.copy(),\
+			                     fid_surv={'fsky':.5, 'DeltaT':[28.6,45.], 'DeltaP':[40.,64.],'fwhm':[5.,7.0], 'lminT':30, 'lmaxT':2500,'lminP':30, 'lmaxP':2500},\
+			                     steps=self.steps, \
+			                     params=self.params_cmb) 
+
+			self.fcmb = fishycmb.mat
+			del fishycmb
+			print("...done...")
+		else:
+			self.fcmb = 0.
 
 		# Precomputed Fisher matrix
 		self._fullMat = None
@@ -699,7 +745,18 @@ class FisherPairwise(object):
 
 		_fullMat += _Priors
 
-		return _fullMat
+		if self.planck_prior:
+			print '---Including Planck priors'
+			for i in xrange(nparams):
+				for j in xrange(i+1):
+					par_i = self.params[i]
+					par_j = self.params[j]  
+					if (par_i in self.params_cmb) and (par_j in self.params_cmb):
+						# print par_i, par_j
+						_fullMat[i,j] += self.fcmb[self.params_cmb.index(par_i),self.params_cmb.index(par_j)] 
+						_fullMat[j,i] = _fullMat[i,j]
+
+		return _fullMat 
 
 	def _computeDerivatives(self):
 		""" 
@@ -714,7 +771,8 @@ class FisherPairwise(object):
 
 		# Computes all the derivatives with respect to the main parameters
 		for p in self.params:
-			print("varying :" + p)
+			if self.verbose:
+				print("varying :" + p)
 
 			# Forward ~~~~~~~~~~~~~~~~~~~~~~
 			par_sur = self.fid_surv.copy()				
@@ -727,8 +785,10 @@ class FisherPairwise(object):
 					step = par_sur[p] * self.step		
 					if par_sur[p] == 0:
 						step = self.step
-				par_sur[p] = par_sur[p] + step
-				print par_sur[p]
+				par_sur[p] = par_sur[p] + step/2.
+				
+				if self.verbose:
+					print par_sur[p]
 
 			elif p in self.fid_cosmo.keys():
 				try:
@@ -737,8 +797,10 @@ class FisherPairwise(object):
 					step = par_cosmo[p] * self.step		
 					if par_cosmo[p] == 0:
 						step = self.step
-				par_cosmo[p] = par_cosmo[p] + step
-				print par_cosmo[p]
+				par_cosmo[p] = par_cosmo[p] + step/2.
+
+				if self.verbose:
+					print par_cosmo[p]
 
 			Vp = self._computeObservables(par_cosmo, par_sur)
 
@@ -755,7 +817,9 @@ class FisherPairwise(object):
 					step = par_sur[p] * self.step		
 					if par_sur[p] == 0:
 						step = self.step
-				par_sur[p] = par_sur[p] - step
+				par_sur[p] = par_sur[p] - step/2.
+
+			if self.verbose:
 				print par_sur[p]
 
 			elif p in self.fid_cosmo.keys():
@@ -765,8 +829,10 @@ class FisherPairwise(object):
 					step = par_cosmo[p] * self.step		
 					if par_cosmo[p] == 0:
 						step = self.step
-				par_cosmo[p] = par_cosmo[p] - step
-				print par_cosmo[p]
+				par_cosmo[p] = par_cosmo[p] - step/2.
+				
+				if self.verbose:
+					print par_cosmo[p]
 
 			Vm = self._computeObservables(par_cosmo, par_sur)
 
@@ -774,7 +840,7 @@ class FisherPairwise(object):
 				step = step * 1e9
 
 			for idz in xrange(self.Nz):
-				dvdp[idz].append( (Vp[idz] - Vm[idz])/ (2.0 * step) )
+				dvdp[idz].append( (Vp[idz] - Vm[idz])/ (step) )
 
 			del par_sur, par_cosmo, Vp, Vm
 
