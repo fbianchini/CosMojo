@@ -500,5 +500,6 @@ class BinPairwise(object):
 		integral = integrate.simps(ells * C_ell * self.W_AP(ells, theta_R)**2, x=ells) 
 		return np.sqrt( 2 * np.pi * theta_R**4 * integral)
 		
+	@staticmethod
 	def W_AP(self, ell, theta_R):
 		return (2.*special.jv(1, ell*theta_R) - np.sqrt(2)*special.jv(1, np.sqrt(2)*ell*theta_R)) / (ell * theta_R)

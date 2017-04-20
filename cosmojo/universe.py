@@ -28,7 +28,9 @@ class Cosmo(object):
 
 	TODO: add reionization parameters, add w_a
 	"""
-	def __init__(self, params=None, **kwargs): 
+	def __init__(self, params=None, lmax=3000, **kwargs): 
+
+		self.lmax = lmax
 
 		# Setting cosmo params
 		if params is None:
@@ -48,24 +50,25 @@ class Cosmo(object):
 				params.pop(par)
 			if par == 'gammaa':
 				params.pop(par)
-			# if par == 'w':
-			# 	params.pop(par)
-			# if par == 'wa':
-			# 	params.pop(par)
-			# if par == 'cs2':
-			# 	params.pop(par)
+			if par == 'w':
+				params.pop(par)
+			if par == 'wa':
+				params.pop(par)
+			if par == 'cs2':
+				params.pop(par)
 
 
 		# Initialize CAMB
 		pars = camb.set_params(**params)
 
-		# if self.params_dict['wa'] == 0:
-		# 	pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=0, dark_energy_model='fluid')
-		# else:
-		# 	pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=self.params_dict['wa'], dark_energy_model='ppf')
+		if self.params_dict['wa'] == 0.:
+			pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=0, dark_energy_model='fluid')
+		else:
+			pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=self.params_dict['wa'], dark_energy_model='ppf')
+		
 		# pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=self.params_dict['wa'])
 
-		pars.set_for_lmax(lmax=3000, lens_potential_accuracy=1.0)
+		pars.set_for_lmax(lmax=self.lmax, lens_potential_accuracy=1.0)
 		# pars.set_accuracy(AccuracyBoost=3.0, lSampleBoost=3.0, lAccuracyBoost=3.0)
 
 		if params['r'] != 0:
@@ -395,300 +398,300 @@ class Cosmo(object):
 	# 	""" returns the scale factor at lambda - matter equality. """
 	# 	return 1. / ( self.oml / self.omm )**(1./3.)
 
-class CosmoCLASS(object):
-	""" 
-	class to encapsulate a cosmology. 
+# class CosmoCLASS(object):
+# 	""" 
+# 	class to encapsulate a cosmology. 
 	
-	TODO: add reionization parameters 	
-	"""
-	def __init__(self, params=None, **kwargs): 
+# 	TODO: add reionization parameters 	
+# 	"""
+# 	def __init__(self, params=None, **kwargs): 
 
-		# Setting cosmo params
-		if params is None:
-			params = default_cosmoCLASS_dict.copy()
-		else:
-			for key, val in default_cosmoCLASS_dict.iteritems():
-				params.setdefault(key,val)
+# 		# Setting cosmo params
+# 		if params is None:
+# 			params = default_cosmoCLASS_dict.copy()
+# 		else:
+# 			for key, val in default_cosmoCLASS_dict.iteritems():
+# 				params.setdefault(key,val)
 
-		params['z_max_pk'] = 1050
+# 		params['z_max_pk'] = 1050
 
-		if (params['w0_fld'] != 0) or (params['wa_fld'] != 0):
-			params['Omega_Lambda'] = 0.
+# 		if (params['w0_fld'] != 0) or (params['wa_fld'] != 0):
+# 			params['Omega_Lambda'] = 0.
 
-		self.params_dict = params.copy()
+# 		self.params_dict = params.copy()
 
-		# def values for matter PS
-		self.kmin = default_limits['pk_kmin']
-		self.kmax = default_limits['pk_kmax']
-		params['P_k_max_1/Mpc'] = self.kmax
+# 		# def values for matter PS
+# 		self.kmin = default_limits['pk_kmin']
+# 		self.kmax = default_limits['pk_kmax']
+# 		params['P_k_max_1/Mpc'] = self.kmax
 
-		# Apparently CLASS also goes nuts if you pass a dictionary w/ params that it doesn't need
-		# such as \gamma_0 and \gamma_a, so remove non-CLASS params from the dictionary 
-		for par in params.keys():
-			if par == 'gamma0':
-				params.pop(par)
-			if par == 'gammaa':
-				params.pop(par)
+# 		# Apparently CLASS also goes nuts if you pass a dictionary w/ params that it doesn't need
+# 		# such as \gamma_0 and \gamma_a, so remove non-CLASS params from the dictionary 
+# 		for par in params.keys():
+# 			if par == 'gamma0':
+# 				params.pop(par)
+# 			if par == 'gammaa':
+# 				params.pop(par)
 
 
-		# if params['r'] != 0:
-		# 	params['modes'] = ['s', 't']
+# 		# if params['r'] != 0:
+# 		# 	params['modes'] = ['s', 't']
 
-		# Initialize CLASS
-		cosmo = Class()
+# 		# Initialize CLASS
+# 		cosmo = Class()
 
-		# Set the parameters to the cosmological code
-		cosmo.set(params)
-		cosmo.compute()
+# 		# Set the parameters to the cosmological code
+# 		cosmo.set(params)
+# 		cosmo.compute()
 
-		self.cosmo = cosmo
-		# # Derived params
-		# for parname, parval in self.bkd.get_derived_params().iteritems():
-		# 	setattr(self, parname, parval) 
+# 		self.cosmo = cosmo
+# 		# # Derived params
+# 		# for parname, parval in self.bkd.get_derived_params().iteritems():
+# 		# 	setattr(self, parname, parval) 
 
-		# Initializing Matter Power spectrum P(z,k) spline up to LSS
-		self.pkz = self.GetMatterPK()
+# 		# Initializing Matter Power spectrum P(z,k) spline up to LSS
+# 		self.pkz = self.GetMatterPK()
 				
-		# Shortcuts for few params 
-		self.omegab = self.cosmo.Omega_b()
-		# self.omegac = self.cosmo.Omega_c()
-		self.omegam = self.cosmo.Omega_m()
-		self.omegav = self.cosmo.get_current_derived_parameters(['Omega_Lambda'])
-		# self.omegak = self.cosmo.get_current_derived_parameters(['O'])
-		self.H0     = self.cosmo.get_current_derived_parameters(['H0'])
-		self.h      = self.cosmo.h()
-		self.ns     = self.cosmo.n_s()
-		self.r      = self.cosmo.get_current_derived_parameters(['r'])
-		self.gamma0 = self.params_dict['gamma0']
-		self.gammaa = self.params_dict['gammaa']
+# 		# Shortcuts for few params 
+# 		self.omegab = self.cosmo.Omega_b()
+# 		# self.omegac = self.cosmo.Omega_c()
+# 		self.omegam = self.cosmo.Omega_m()
+# 		self.omegav = self.cosmo.get_current_derived_parameters(['Omega_Lambda'])
+# 		# self.omegak = self.cosmo.get_current_derived_parameters(['O'])
+# 		self.H0     = self.cosmo.get_current_derived_parameters(['H0'])
+# 		self.h      = self.cosmo.h()
+# 		self.ns     = self.cosmo.n_s()
+# 		self.r      = self.cosmo.get_current_derived_parameters(['r'])
+# 		self.gamma0 = self.params_dict['gamma0']
+# 		self.gammaa = self.params_dict['gammaa']
 
-	def GetMatterPK(self, nz=100, nk=200):
-		"""
-		"""
-		zvec = np.exp(np.log(self.params_dict['z_max_pk'] + 1) * np.linspace(0, 1, nz)) - 1
-		kvec = np.logspace(np.log10(self.kmin), np.log10(self.kmax), nk)
+# 	def GetMatterPK(self, nz=100, nk=200):
+# 		"""
+# 		"""
+# 		zvec = np.exp(np.log(self.params_dict['z_max_pk'] + 1) * np.linspace(0, 1, nz)) - 1
+# 		kvec = np.logspace(np.log10(self.kmin), np.log10(self.kmax), nk)
 
-		pk = np.empty((nz,nk))
+# 		pk = np.empty((nz,nk))
 
-		for i in xrange(nz):
-			pk[i,:] = np.array([self.cosmo.pk(k,zvec[i]) for k in kvec])
+# 		for i in xrange(nz):
+# 			pk[i,:] = np.array([self.cosmo.pk(k,zvec[i]) for k in kvec])
 
-		class PKInterpolator(RectBivariateSpline):
-			def P(self, z, kh, grid=None):
-				if grid is None:
-					grid = not np.isscalar(z) and not np.isscalar(kh)
-				return self(z, kh, grid=grid)
+# 		class PKInterpolator(RectBivariateSpline):
+# 			def P(self, z, kh, grid=None):
+# 				if grid is None:
+# 					grid = not np.isscalar(z) and not np.isscalar(kh)
+# 				return self(z, kh, grid=grid)
 		
-		res = PKInterpolator(zvec, kvec, pk)
+# 		res = PKInterpolator(zvec, kvec, pk)
 
-		return res
+# 		return res
 
-	def rho_c(self, z): # [kg/m^3]
-		return 3.*(self.H_z(z)*(u.km).to(u.Mpc))**2/(8.*np.pi*const.G.value)
+# 	def rho_c(self, z): # [kg/m^3]
+# 		return 3.*(self.H_z(z)*(u.km).to(u.Mpc))**2/(8.*np.pi*const.G.value)
 
-	def d_L(self, z): # [Mpc]
-		""" returns the luminosity distance out to redshift z. """
-		if np.isscalar(z) or (np.size(z) == 1):
-			return self.cosmo.luminosity_distance(z)
-		else:
-			return np.asarray([ self.cosmo.luminosity_distance(tz) for tz in z ])
+# 	def d_L(self, z): # [Mpc]
+# 		""" returns the luminosity distance out to redshift z. """
+# 		if np.isscalar(z) or (np.size(z) == 1):
+# 			return self.cosmo.luminosity_distance(z)
+# 		else:
+# 			return np.asarray([ self.cosmo.luminosity_distance(tz) for tz in z ])
 
-	def d_A(self, z): # [Mpc]
-		""" returns the angular diameter distance out to redshift z """
-		if np.isscalar(z) or (np.size(z) == 1):
-			return self.cosmo.angular_distance(z)
-		else:
-			return np.asarray([ self.cosmo.angular_distance(tz) for tz in z ])
+# 	def d_A(self, z): # [Mpc]
+# 		""" returns the angular diameter distance out to redshift z """
+# 		if np.isscalar(z) or (np.size(z) == 1):
+# 			return self.cosmo.angular_distance(z)
+# 		else:
+# 			return np.asarray([ self.cosmo.angular_distance(tz) for tz in z ])
 
-	# def f_K(self, z): # [Mpc]
-	# 	""" returns the transverse comoving radial distance out to redshift z 
-	# 		FIXME: double check this definition
-	# 	"""
-	# 	return self.bkd.comoving_radial_distance(z)
+# 	# def f_K(self, z): # [Mpc]
+# 	# 	""" returns the transverse comoving radial distance out to redshift z 
+# 	# 		FIXME: double check this definition
+# 	# 	"""
+# 	# 	return self.bkd.comoving_radial_distance(z)
 
-	def H_a(self, a): # [km/s/Mpc]
-		""" returns the hubble factor at scale factor a=1/(1+z). """
-		z = np.nan_to_num(1./a - 1.)
-		return self.H_z(z)
+# 	def H_a(self, a): # [km/s/Mpc]
+# 		""" returns the hubble factor at scale factor a=1/(1+z). """
+# 		z = np.nan_to_num(1./a - 1.)
+# 		return self.H_z(z)
 
-	def H_z(self, z): # [km/s/Mpc]
-		""" returns the hubble factor at redshift z. """
-		if np.isscalar(z) or (np.size(z) == 1):
-			return  self.cosmo.Hubble(z)*const.c.to('km/s').value
-		else:
-			return np.asarray([ self.cosmo.Hubble(tz)*const.c.to('km/s').value for tz in z ])
+# 	def H_z(self, z): # [km/s/Mpc]
+# 		""" returns the hubble factor at redshift z. """
+# 		if np.isscalar(z) or (np.size(z) == 1):
+# 			return  self.cosmo.Hubble(z)*const.c.to('km/s').value
+# 		else:
+# 			return np.asarray([ self.cosmo.Hubble(tz)*const.c.to('km/s').value for tz in z ])
 
-	def E_z(self, z): # [unitless]
-		""" returns the unitless Hubble expansion rate at redshift z """
-		return  self.H_z(z) / self.H0
+# 	def E_z(self, z): # [unitless]
+# 		""" returns the unitless Hubble expansion rate at redshift z """
+# 		return  self.H_z(z) / self.H0
 
-	def D_z(self, z):
-		""" returns the growth factor at redshift z (Eq. 7.77 of Dodelson). """
-		if np.isscalar(z) or (np.size(z) == 1):
-			return 2.5 * self.omegam * self.H_a(1./(1.+z)) / self.H0 * integrate.quad( lambda a : ( self.H0 / (a * self.H_a(a)) )**3, 0, 1./(1.+z) )[0] 
-		else:
-			return [ self.D_z(tz) for tz in z ]
+# 	def D_z(self, z):
+# 		""" returns the growth factor at redshift z (Eq. 7.77 of Dodelson). """
+# 		if np.isscalar(z) or (np.size(z) == 1):
+# 			return 2.5 * self.omegam * self.H_a(1./(1.+z)) / self.H0 * integrate.quad( lambda a : ( self.H0 / (a * self.H_a(a)) )**3, 0, 1./(1.+z) )[0] 
+# 		else:
+# 			return [ self.D_z(tz) for tz in z ]
 
-	def f_z(self, z, gamma0=None, gammaa=None): # [unitless]
-		"""
-		Returns the growth rate a' la Linder
+# 	def f_z(self, z, gamma0=None, gammaa=None): # [unitless]
+# 		"""
+# 		Returns the growth rate a' la Linder
 
-		f(z) = d\ln{D}/d\ln{a} = \Omega_m(z)^\gamma(z)
+# 		f(z) = d\ln{D}/d\ln{a} = \Omega_m(z)^\gamma(z)
 		
-		where the growth index gamma can be expanded as
+# 		where the growth index gamma can be expanded as
 
-		\gamma(z) = \gamma_0 - z/(1+z)\gamma_a
-		"""
-		if gamma0 is None: 
-			gamma0 = self.gamma0
+# 		\gamma(z) = \gamma_0 - z/(1+z)\gamma_a
+# 		"""
+# 		if gamma0 is None: 
+# 			gamma0 = self.gamma0
 
-		if gammaa is None: 
-			gammaa = self.gammaa
+# 		if gammaa is None: 
+# 			gammaa = self.gammaa
 
-		gamma = gamma0 - z/(1+z)*gammaa
+# 		gamma = gamma0 - z/(1+z)*gammaa
 
-		return (self.omegam*(1+z)**3/self.E_z(z)**2)**gamma
+# 		return (self.omegam*(1+z)**3/self.E_z(z)**2)**gamma
 
-	def Wz(self, z):
-		return self.f_K(z) * (1 - self.f_K(z)/self.f_K(self.zstar))
+# 	def Wz(self, z):
+# 		return self.f_K(z) * (1 - self.f_K(z)/self.f_K(self.zstar))
 
-	def E_G(self, z, gamma0=None, gammaa=None):
-		"""
-		Returns the E_G statistic
-		"""
-		if gamma0 is None: 
-			gamma0 = self.gamma0
+# 	def E_G(self, z, gamma0=None, gammaa=None):
+# 		"""
+# 		Returns the E_G statistic
+# 		"""
+# 		if gamma0 is None: 
+# 			gamma0 = self.gamma0
 
-		if gammaa is None: 
-			gammaa = self.gammaa
+# 		if gammaa is None: 
+# 			gammaa = self.gammaa
 
-		gamma = gamma0 - z/(1+z)*gammaa
+# 		gamma = gamma0 - z/(1+z)*gammaa
 
-		return self.omegam / self.f_z(z, gamma0=gamma0, gammaa=gammaa)
+# 		return self.omegam / self.f_z(z, gamma0=gamma0, gammaa=gammaa)
 
-	def dVdz(self, z): 
-		""" 
-		The differential comoving volume element :math: `dV_c / / dz, 
-		which has dimensions of volume per unit redshift  
+# 	def dVdz(self, z): 
+# 		""" 
+# 		The differential comoving volume element :math: `dV_c / / dz, 
+# 		which has dimensions of volume per unit redshift  
 		
-		Notes
-		-----
-		"""
-		return 4.*np.pi*const.c.to('km/s').value * (1+z)**2 * self.d_A(z)**2. / self.H_z(z) 
+# 		Notes
+# 		-----
+# 		"""
+# 		return 4.*np.pi*const.c.to('km/s').value * (1+z)**2 * self.d_A(z)**2. / self.H_z(z) 
 
-	def V(self, zmax, zmin=0.): # [Mpc^3]
-		# if np.isscalar(zmax) or (np.size(zmax) == 1):
-		return integrate.quad(self.dVdz, zmin, zmax, epsabs=0.0, epsrel=10e-5, limit=100)[0]
-		# else:
-		# 	return np.asarray([ self.V(tz) for tz in zmax ])
+# 	def V(self, zmax, zmin=0.): # [Mpc^3]
+# 		# if np.isscalar(zmax) or (np.size(zmax) == 1):
+# 		return integrate.quad(self.dVdz, zmin, zmax, epsabs=0.0, epsrel=10e-5, limit=100)[0]
+# 		# else:
+# 		# 	return np.asarray([ self.V(tz) for tz in zmax ])
 
-	def V_survey(self, zmax, zmin=0., fsky=1.):
-		return fsky * self.V(zmax, zmin=zmin)
+# 	def V_survey(self, zmax, zmin=0., fsky=1.):
+# 		return fsky * self.V(zmax, zmin=zmin)
 
-	def sigma_Rz(self, R, z=0., nk=10000):
-		""" 
-		FIXME: check h factors
+# 	def sigma_Rz(self, R, z=0., nk=10000):
+# 		""" 
+# 		FIXME: check h factors
 
-		Computes the energy of the fluctuations within a sphere of R h^{-1} Mpc
-		.. math::
-		\\sigma^2(R)= \\frac{1}{2 \\pi^2} \\int_0^\\infty \\frac{dk}{k} k^3 P(k,z) W^2(kR)
-		where
-		.. math::
-		W(kR) = \\frac{3j_1(kR)}{kR}
-		"""
-		if np.isscalar(R) or (np.size(R) == 1):
-			def int_sigma(logk):
-				k  = np.exp(logk)
-				kR = k * R
-				W  = W_k_tophat(kR)#3.0 * (np.sin(kR) - kR * np.cos(kR)) / kR**3
-				pk = self.pkz.P(z,k)
+# 		Computes the energy of the fluctuations within a sphere of R h^{-1} Mpc
+# 		.. math::
+# 		\\sigma^2(R)= \\frac{1}{2 \\pi^2} \\int_0^\\infty \\frac{dk}{k} k^3 P(k,z) W^2(kR)
+# 		where
+# 		.. math::
+# 		W(kR) = \\frac{3j_1(kR)}{kR}
+# 		"""
+# 		if np.isscalar(R) or (np.size(R) == 1):
+# 			def int_sigma(logk):
+# 				k  = np.exp(logk)
+# 				kR = k * R
+# 				W  = W_k_tophat(kR)#3.0 * (np.sin(kR) - kR * np.cos(kR)) / kR**3
+# 				pk = self.pkz.P(z,k)
 
-				return k**3 * W**2 * pk
+# 				return k**3 * W**2 * pk
 
-			lnks   = np.linspace(np.log(self.kmin), np.log(self.kmax), nk)
-			sigma2 = integrate.simps( int_sigma(lnks), x=lnks )
-			sigma2 /= (2.*np.pi**2)
+# 			lnks   = np.linspace(np.log(self.kmin), np.log(self.kmax), nk)
+# 			sigma2 = integrate.simps( int_sigma(lnks), x=lnks )
+# 			sigma2 /= (2.*np.pi**2)
 
-			return np.sqrt(sigma2)
-			# return np.sqrt(1.0/(2.0*np.pi**2.0) * integrate.romberg(int_sigma, np.log(self.kmin), np.log(self.kmax)))
-		else:
-			return np.asarray([ self.sigma_Rz(Rs) for Rs in R ])
+# 			return np.sqrt(sigma2)
+# 			# return np.sqrt(1.0/(2.0*np.pi**2.0) * integrate.romberg(int_sigma, np.log(self.kmin), np.log(self.kmax)))
+# 		else:
+# 			return np.asarray([ self.sigma_Rz(Rs) for Rs in R ])
 
-	def sigma_Mz(self, M, z=0., nk=10000):
-		""" 
-		FIXME: check h factors
+# 	def sigma_Mz(self, M, z=0., nk=10000):
+# 		""" 
+# 		FIXME: check h factors
 		
-		Computes the energy of the fluctuations within a sphere of R h^{-1} Mpc
-		.. math::
-		\\sigma^2(R)= \\frac{1}{2 \\pi^2} \\int_0^\\infty \\frac{dk}{k} k^3 P(k,z) W^2(kR)
-		where
-		.. math::
-		W(kR) = \\frac{3j_1(kR)}{kR}
-		"""
-		R = self.M2R(M)#, z=z)
-		return self.sigma_Rz(R, z=z, nk=nk)
+# 		Computes the energy of the fluctuations within a sphere of R h^{-1} Mpc
+# 		.. math::
+# 		\\sigma^2(R)= \\frac{1}{2 \\pi^2} \\int_0^\\infty \\frac{dk}{k} k^3 P(k,z) W^2(kR)
+# 		where
+# 		.. math::
+# 		W(kR) = \\frac{3j_1(kR)}{kR}
+# 		"""
+# 		R = self.M2R(M)#, z=z)
+# 		return self.sigma_Rz(R, z=z, nk=nk)
 
-	def rho_bar(self, z=0.): # [M_sun/Mpc^3]
-		return self.rho_c(0.) * self.omegam * (1+z)**3 * u.kg.to('M_sun') / u.m.to('Mpc')**3
+# 	def rho_bar(self, z=0.): # [M_sun/Mpc^3]
+# 		return self.rho_c(0.) * self.omegam * (1+z)**3 * u.kg.to('M_sun') / u.m.to('Mpc')**3
 
-	def M2R(self, M, z=None): # [Mpc]
-		"""
-		FIXME: check h factor
-		Lagrangian scale of density of mass M
-		Counts cdm and baryons towards mass budget, not massive neutrinos (!!??)
-		- Mass units are *M_sun*.
-		- The radius is in *Mpc*
-		"""
-		return ((3.* M)/(4.*np.pi * self.rho_bar(0.)))**(1./3.)
+# 	def M2R(self, M, z=None): # [Mpc]
+# 		"""
+# 		FIXME: check h factor
+# 		Lagrangian scale of density of mass M
+# 		Counts cdm and baryons towards mass budget, not massive neutrinos (!!??)
+# 		- Mass units are *M_sun*.
+# 		- The radius is in *Mpc*
+# 		"""
+# 		return ((3.* M)/(4.*np.pi * self.rho_bar(0.)))**(1./3.)
 
-	def R2M(self, R, z=None): # [M_sun]
-		"""
-		FIXME: check h factor
-		"""
-		return 4./3.*np.pi * self.rho_bar(0.) * R**3
+# 	def R2M(self, R, z=None): # [M_sun]
+# 		"""
+# 		FIXME: check h factor
+# 		"""
+# 		return 4./3.*np.pi * self.rho_bar(0.) * R**3
 
-	def delta_c(self):
-		# FIXME: valid for flat-only cosmology, see NFW97
-		#return 0.15*(12.0*np.pi)**(2.0/3.0)
-		return 1.686
+# 	def delta_c(self):
+# 		# FIXME: valid for flat-only cosmology, see NFW97
+# 		#return 0.15*(12.0*np.pi)**(2.0/3.0)
+# 		return 1.686
 	
-	def nu_M(self, M, z=0.):
-		return self.delta_c() / self.sigma_Mz(M, z=z)
+# 	def nu_M(self, M, z=0.):
+# 		return self.delta_c() / self.sigma_Mz(M, z=z)
 
-	def nu_sigma(self, sigma):
-		"""
-		Input sigma instead of M if you already computed sigma(M).
-		"""
-		return self.delta_c()/sigma
+# 	def nu_sigma(self, sigma):
+# 		"""
+# 		Input sigma instead of M if you already computed sigma(M).
+# 		"""
+# 		return self.delta_c()/sigma
 
-	def cmb_spectra(self, lmax, dl=False, spec=None):
-		"cls [lmax+1, ] tt, ee, bb, te, kk, tk"
+# 	def cmb_spectra(self, lmax, dl=False, spec=None):
+# 		"cls [lmax+1, ] tt, ee, bb, te, kk, tk"
 
-		if dl:
-			ls = np.arange(0,lmax+1)
-			fact = (ls*(ls+1)) / (2.*np.pi) * 1.e12 * self.cosmo.T_cmb()**2.
-		else:
-			fact = 1.e12 * self.cosmo.T_cmb()**2.
+# 		if dl:
+# 			ls = np.arange(0,lmax+1)
+# 			fact = (ls*(ls+1)) / (2.*np.pi) * 1.e12 * self.cosmo.T_cmb()**2.
+# 		else:
+# 			fact = 1.e12 * self.cosmo.T_cmb()**2.
 
-		cls_ = self.cosmo.lensed_cl()
+# 		cls_ = self.cosmo.lensed_cl()
 
-		cls = np.zeros((lmax+1,5))
+# 		cls = np.zeros((lmax+1,5))
 
-		cls[:,0] = cls_['tt'][:lmax+1] * fact 
-		cls[:,1] = cls_['ee'][:lmax+1] * fact
-		cls[:,2] = cls_['bb'][:lmax+1] * fact
-		cls[:,3] = cls_['te'][:lmax+1] * fact
-		cls[:,4] = cls_['pp'][:lmax+1] * fact
+# 		cls[:,0] = cls_['tt'][:lmax+1] * fact 
+# 		cls[:,1] = cls_['ee'][:lmax+1] * fact
+# 		cls[:,2] = cls_['bb'][:lmax+1] * fact
+# 		cls[:,3] = cls_['te'][:lmax+1] * fact
+# 		cls[:,4] = cls_['pp'][:lmax+1] * fact
 
-		# if self.pars.DoLensing != 0:
-		# clkk = spectra['lens_potential'][:,0] * (2.*np.pi/4.)
-		# cltk = spectra['lens_potential'][:,1] * (2.*np.pi/2.) / np.sqrt(ls*(ls+1.)) * self.cosmo.T_cmb()*1.e6
-		# clkk = np.nan_to_num(clkk)
-		# cltk = np.nan_to_num(cltk)
-		# cls  = np.column_stack((cls,clkk,cltk))
+# 		# if self.pars.DoLensing != 0:
+# 		# clkk = spectra['lens_potential'][:,0] * (2.*np.pi/4.)
+# 		# cltk = spectra['lens_potential'][:,1] * (2.*np.pi/2.) / np.sqrt(ls*(ls+1.)) * self.cosmo.T_cmb()*1.e6
+# 		# clkk = np.nan_to_num(clkk)
+# 		# cltk = np.nan_to_num(cltk)
+# 		# cls  = np.column_stack((cls,clkk,cltk))
 
-		# TODO: output cls as a dictionary?
+# 		# TODO: output cls as a dictionary?
 
-		return np.nan_to_num(cls)
+# 		return np.nan_to_num(cls)
 
 
