@@ -27,7 +27,7 @@ def bl(fwhm_arcmin, lmax=3000):
     ls = np.arange(0, lmax+1)
     return np.exp( -ls*(ls+1.) * (fwhm_arcmin * np.pi/180./60.)**2 / (8.*np.log(2.)) )
 
-def nl_cmb(noise_uK_arcmin, fwhm_arcmin, lmax=3000, lknee=1e-9, alpha=0.):
+def nl_cmb(noise_uK_arcmin, fwhm_arcmin, lmax=3000, lknee=None, alpha=None):
     """ 
     Returns the beam-deconvolved noise power spectrum in units of uK^2 for
 
@@ -44,7 +44,10 @@ def nl_cmb(noise_uK_arcmin, fwhm_arcmin, lmax=3000, lknee=1e-9, alpha=0.):
     """
     ls = np.arange(0, lmax+1)
     if np.isscalar(noise_uK_arcmin) or (np.size(noise_uK_arcmin) == 1):
-        return (noise_uK_arcmin * np.pi/180./60.)**2 / bl(fwhm_arcmin, lmax=lmax) * (1 + (ls/lknee)**alpha)
+        if (lknee is not None) and (alpha is not None):
+            return  ((noise_uK_arcmin * np.pi/180./60.)**2 / bl(fwhm_arcmin, lmax=lmax)**2) * (1. + (ls/lknee)**alpha)
+        else:   
+            return  ((noise_uK_arcmin * np.pi/180./60.)**2 / bl(fwhm_arcmin, lmax=lmax)**2)
     else:
         return 1./np.sum([1./nl_cmb(noise_uK_arcmin[i], fwhm_arcmin[i], lmax=lmax, lknee=lknee, alpha=alpha) for i in xrange(len(noise_uK_arcmin))], axis=0)
 
