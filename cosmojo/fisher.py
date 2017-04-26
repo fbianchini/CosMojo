@@ -24,6 +24,8 @@ class Fisher(object):
 		self.steps  = {}
 		self.step = 0.003
 		self.verbose = verbose
+		self.fisher_cutoff = 1e-10
+		self.fisher_spectrum = 1e10
 
 	def _computeObservables(self):
 		pass
@@ -45,7 +47,8 @@ class Fisher(object):
 		i = self.params.index(param_i)
 		j = self.params.index(param_j)
 
-		return self.mat[i, j]
+		# return self.mat[i, j]
+		return reduce(np.dot, [self.D, self.mat, self.D])[i, j]
 
 	def invFij(self, param_i, param_j):
 		"""
@@ -55,7 +58,8 @@ class Fisher(object):
 		i = self.params.index(param_i)
 		j = self.params.index(param_j)
 
-		return self.invmat[i, j]
+		# return self.invmat[i, j]
+		return reduce(np.dot, [self.D, self.invmat, self.D])[i, j]
 
 	def sigma_fix(self, param):
 		return 1.0 / np.sqrt(self.Fij(param, param))
@@ -75,17 +79,23 @@ class Fisher(object):
 		Returns
 		-------
 		(mat, invmat): ndarray
-			Marginalised Fisher matrix and its invers
+			Marginalised Fisher matrix and covariance
 		"""
-		# Builds inverse matrix
+		# Builds covariance matrix
 		marg_inv = np.zeros((len(params), len(params)))
+		D = np.zeros((len(params), len(params)))
 		for i in xrange(len(params)):
 			indi = self.params.index(params[i])
 			for j in xrange(len(params)):
 				indj = self.params.index(params[j])
 				marg_inv[i, j] = self.invmat[indi, indj]
+				D[i, j] = self.D[indi, indj]
 
-		marg_mat = linalg.inv(marg_inv)
+		marg_mat = reduce(np.dot, [D, np.linalg.inv(marg_inv), D])
+		marg_inv = reduce(np.dot, [D, marg_inv, D])
+
+		# marg_mat = np.linalg.inv(marg_inv)
+		# marg_mat = reduce(np.dot, [vecs, np.linalg.inv(marg_inv), np.linalg.inv(vecs)])
 
 		return (marg_mat, marg_inv)
 
@@ -113,7 +123,7 @@ class Fisher(object):
 		Returns the inverse fisher matrix
 		"""
 		if self._invmat is None:
-			self._invmat = linalg.pinv(self.mat)
+			self._invmat = np.linalg.inv(self.mat)
 		return self._invmat
 
 	@property
@@ -124,17 +134,43 @@ class Fisher(object):
 		# If the matrix is not already computed, compute it
 		if self._mat is None:
 			self._fullMat = self._computeFullMatrix()
-			self._fullInvMat = linalg.pinv(self._fullMat)
+
+			print np.linalg.cond(self._fullMat)
+			# invert Fisher matrix (get the covariance)
+			# see https://www.cs.ubc.ca/~inutard/files/cs517-project.pdf
+			T = np.tril(self._fullMat)
+			d = np.zeros(T.shape[0])
+			for i in xrange(T.shape[0]):
+			#     print np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])
+			    d[i] = 1. / np.max( [np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])] )
+			self.D = np.diag(d)
+			self._fullMat = reduce(np.dot, [self.D, self._fullMat, self.D]) # rescaled Fisher matrix
+
+			print np.linalg.cond(self._fullMat)
+
+			self._fullInvMat = np.linalg.inv(self._fullMat) # rescaled Covariance matrix
+			
+			# SVD method
+			# vals, vecs = np.linalg.eig(self._fullMat)
+			# self._fullInvMat = reduce(np.dot, [vecs, np.diag(1./vals), np.linalg.inv(vecs)])
 
 			self._invmat = self._fullInvMat.copy()
 			self._mat = self._fullMat.copy()
 
 			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
 			# self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
-			# self._mat = linalg.inv(self._invmat)
+			# self._mat = np.linalg.inv(self._invmat)
 
 		return self._mat
-				
+
+	def clearall(self):
+		print("...!!! erasing Fisher matrix & covariance !!!...")
+		self._fullMat = None
+		self._fullInvMat = None
+		self._mat = None
+		self._invmat = None
+		print("...done...")
+
 	def corner_plot(self, nstd=1, labels=None, **kwargs):
 		""" 
 		Makes a corner plot including all the parameters in the Fisher analysis
@@ -170,6 +206,7 @@ class Fisher(object):
 			return vals[order], vecs[:, order]
 
 		mat, COV = self._marginalise(params)
+		# print COV
 
 		# First find the fiducial value for the parameter in question
 		fid_param = None
@@ -181,6 +218,8 @@ class Fisher(object):
 				fid_param = self.fid_cosmo[p]
 				if p == 'As':
 					fid_param *= 1e9 
+				if p == 'H0':
+					fid_param /= 100. 
 
 			pos[params.index(p)] = fid_param
 
@@ -299,7 +338,8 @@ class FisherCMB(Fisher):
 				self.steps[key] = val
 
 		if self.verbose:
-			print self.fid_surv
+			for key, val in self.fid_surv.iteritems():
+				print key, val
 			print self.params
 
 		# Checks that the marginalisation parameters are actually considered
@@ -343,6 +383,11 @@ class FisherCMB(Fisher):
 		# Compute fiducial CMB power spectra w/ fiducial cosmo + survey
 		print("...Computing fiducial CMB power spectra...")
 		self.cls = self.cosmo.cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
+		print("...done...")
+
+		# Compute derivatives
+		print("...Computing derivatives...")
+		self._dcldp = self._computeDerivatives()
 		print("...done...")
 
 		# Precomputed Fisher matrix
@@ -397,17 +442,20 @@ class FisherCMB(Fisher):
 		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
 
 	def _computeFullMatrix(self):
-		print("...Computing derivatives...")
-		self._dcldp = self._computeDerivatives()
+		if self._dcldp is None:
+			print("...Computing derivatives...")
+			self._dcldp = self._computeDerivatives()
+			print("...done...")
+
 		# nparams = len(self._dvdp)
 		nparams = len(self.params)
-		
+
 		# print self._dvdp
 		# print self.inv_cov[0].shape
 
 		_fullMat = np.zeros((nparams,nparams))
 
-		print("Computing Full Fisher matrix")
+		print("...Computing Full Fisher matrix...")
 		# Computes the fisher Matrix
 		for i in xrange(nparams):
 			for j in xrange(i+1):
@@ -417,13 +465,13 @@ class FisherCMB(Fisher):
 					cov = self._computeCovariance(l)
 					
 					if set(self.obs) == set(['TT','TE','EE']):
-						inv_cov = linalg.inv(cov)
+						inv_cov = np.linalg.inv(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
 					
 					elif set(self.obs) == set(['TT','TE','EE', 'KK', 'KT']):
-						inv_cov = linalg.inv(cov)
+						inv_cov = np.linalg.inv(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3], self._dcldp[i][l,4], self._dcldp[i][l,5]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3], self._dcldp[j][l,4], self._dcldp[j][l,5]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
@@ -455,6 +503,8 @@ class FisherCMB(Fisher):
 				_fullMat[i,j] = tmp
 				_fullMat[j,i] = tmp#_fullMat[i,j]
 				del tmp
+
+		print("...done...")
 
 		_Priors = np.zeros((nparams,nparams))
 		for p in self.params:
@@ -498,7 +548,8 @@ class FisherCMB(Fisher):
 				if par_cosmo[p] == 0:
 					step = self.step
 
-			par_cosmo[p] = par_cosmo[p] + step/2.
+			# par_cosmo[p] = par_cosmo[p] + step/2.
+			par_cosmo[p] = par_cosmo[p] + step
 			
 			if self.verbose:
 				print '\t %3.2e' %par_cosmo[p]
@@ -516,7 +567,8 @@ class FisherCMB(Fisher):
 				step = par_cosmo[p] * self.step	
 				if par_cosmo[p] == 0:
 					step = self.step
-			par_cosmo[p] = par_cosmo[p] - step/2.
+			# par_cosmo[p] = par_cosmo[p] - step/2.
+			par_cosmo[p] = par_cosmo[p] - step
 			
 			if self.verbose:
 				print '\t %3.2e' %par_cosmo[p]
@@ -526,11 +578,11 @@ class FisherCMB(Fisher):
 
 			if p == 'As':
 				step = step * 1e9
+			if p == 'H0':
+				step = step / 100.
 
-			# if p == 'w': 
-			# 	dcldp.append( (clsp - clsm)/ (step))
-			# else:
-			dcldp.append( (clsp - clsm)/ (step))		
+			# dcldp.append( (clsp - clsm)/ (step))		
+			dcldp.append( (clsp - clsm)/ (2. * step))		
 
 			del par_cosmo, clsp, clsm
 
@@ -560,7 +612,7 @@ class FisherCMB(Fisher):
 				indj = self.params.index(params[j])
 				newFisher._mat[i, j] = self.mat[indi, indj]
 
-		newFisher._invmat = linalg.inv(newFisher._mat)
+		newFisher._invmat = np.linalg.inv(newFisher._mat)
 
 		return newFisher
 
@@ -660,7 +712,7 @@ class FisherPairwise(Fisher):
 			self.cov = cov
 			print("...covariance matrix loaded...")
 
-		self.inv_cov = {i : linalg.inv(self.cov[i]) for i in xrange(self.Nz)}
+		self.inv_cov = {i : np.linalg.inv(self.cov[i]) for i in xrange(self.Nz)}
 		# self.cov = linalg.block_diag(*cov.values())
 		# self.inv_cov = linalg.pinv2(self.cov)
 
@@ -718,7 +770,7 @@ class FisherPairwise(Fisher):
 
 		_fullMat = np.zeros((nparams,nparams))
 
-		print("Computing Full Fisher matrix")
+		print("...Computing Full Fisher matrix...")
 		# Computes the fisher Matrix
 		for i in xrange(nparams):
 			for j in xrange(i+1):
@@ -839,6 +891,9 @@ class FisherPairwise(Fisher):
 			if p == 'As':
 				step = step * 1e9
 
+			if p == 'H0':
+				step = step / 100.
+
 			for idz in xrange(self.Nz):
 				dvdp[idz].append( (Vp[idz] - Vm[idz])/ (step) )
 
@@ -870,7 +925,7 @@ class FisherPairwise(Fisher):
 				indj = self.params.index(params[j])
 				newFisher._mat[i, j] = self.mat[indi, indj]
 
-		newFisher._invmat = linalg.inv(newFisher._mat)
+		newFisher._invmat = np.linalg.inv(newFisher._mat)
 
 		return newFisher
 

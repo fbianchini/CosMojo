@@ -45,7 +45,7 @@ def nl_cmb(noise_uK_arcmin, fwhm_arcmin, lmax=3000, lknee=None, alpha=None):
     ls = np.arange(0, lmax+1)
     if np.isscalar(noise_uK_arcmin) or (np.size(noise_uK_arcmin) == 1):
         if (lknee is not None) and (alpha is not None):
-            return  ((noise_uK_arcmin * np.pi/180./60.)**2 / bl(fwhm_arcmin, lmax=lmax)**2) * (1. + (ls/lknee)**alpha)
+            return  ((noise_uK_arcmin * np.pi/180./60.)**2 / bl(fwhm_arcmin, lmax=lmax)**2) * (1. + (lknee/ls)**alpha)
         else:   
             return  ((noise_uK_arcmin * np.pi/180./60.)**2 / bl(fwhm_arcmin, lmax=lmax)**2)
     else:

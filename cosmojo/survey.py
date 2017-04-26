@@ -339,12 +339,12 @@ class dNdzMagLim(Tomography):
         self.a  = a
         self.z0 = z0
         self.b  = b
-        tmp_zmax = (np.power(-1*np.log(default_precision['dNdz_precision']),1/b)*z0)
-        if tmp_zmax < z_max:
-            print ("WARNING:: z_max requested could "
-                   "result in failed normalization...")
-            print ("\tReseting z_max from %.2f to %.2f..." % (z_max, tmp_zmax))
-            z_max = tmp_zmax
+        # tmp_zmax = (np.power(-1*np.log(default_precision['dNdz_precision']),1/b)*z0)
+        # if tmp_zmax < z_max:
+        #     print ("WARNING:: z_max requested could "
+        #            "result in failed normalization...")
+        #     print ("\tReseting z_max from %.2f to %.2f..." % (z_max, tmp_zmax))
+        #     z_max = tmp_zmax
         
         super(dNdzMagLim, self).__init__(z_min, z_max, b_zph, sigma_zph, nbins, bins)
 
