@@ -6,6 +6,18 @@ h_planck = const.h.value
 k_B = const.k_B.value
 jansky   = 1.0e-23            # erg/s/cm/cm/Hz
 
+def btheta (fwhm_arcmin, theta):
+    sigmab = fwhm_arcmin/(np.sqrt(8.*np.log(2.)))
+    # thetas = np.linspace(0, theta, 1000)
+    return np.exp(-theta**2/(2.*sigmab**2))/(2.*np.pi*sigmab**2)
+
+def btheta2D (fwhm_arcmin, reso=0.2, theta_max=5):
+    sigmab = fwhm_arcmin/(np.sqrt(8.*np.log(2.)))
+    theta_x,theta_y = np.meshgrid(np.arange(-theta_max,theta_max+reso,reso), np.arange(-theta_max,theta_max+reso,reso)) 
+    thetas = np.sqrt(theta_x**2+theta_y**2) # arcmin
+    return np.exp(-thetas**2/(2.*sigmab**2))/(2.*np.pi*sigmab**2)
+
+
 def bl(fwhm_arcmin, lmax=3000):
     """ 
     Returns the map-level transfer function for a symmetric Gaussian beam.
@@ -25,7 +37,7 @@ def bl(fwhm_arcmin, lmax=3000):
 
     """
     ls = np.arange(0, lmax+1)
-    return np.exp( -ls*(ls+1.) * (fwhm_arcmin * np.pi/180./60.)**2 / (8.*np.log(2.)) )
+    return np.exp( -ls*(ls+1.) * (fwhm_arcmin * np.pi/180./60.)**2 / (16.*np.log(2.)) )
 
 def nl_cmb(noise_uK_arcmin, fwhm_arcmin, lmax=3000, lknee=None, alpha=None):
     """ 
@@ -78,7 +90,7 @@ def dB_nu_dT(nu, T_cmb=2.725):
         Frequency in GHz
     """
     x = h_planck*(nu*1e9)/(k_B*T_cmb)
-    return 2.*k_B/c**2 * x**2*np.exp(x)/(np.exp(x)-1)**2
+    return 2.*k_B/c_light**2 * x**2*np.exp(x)/(np.exp(x)-1)**2
 
 def RJ_law(nu, T_cmb=2.725, MJy_sr=False):
     """
@@ -206,3 +218,19 @@ def W_Delta(k, Rmin, Rmax):
 def V_bin(r, dr):
     return np.pi/3. * (dr * (dr**2 + 12*r**2))
 
+def cib_cls (ell, nu=150e9, tcmb=2.725):
+    nu0 = 150. * 1.e9 # Hz
+    ell0 = 3000.
+    ap = 7.0
+    ac = 5.7
+    beta = 2.1
+    n = 1.2
+    Td = 9.7 # K
+
+    mu2 = (nu**beta * B_nu(nu/1e9,Td)/dB_nu_dT(nu/1e9,tcmb))**2
+    mu02 = (nu0**beta * B_nu(nu0/1e9,Td)/dB_nu_dT(nu0/1e9,tcmb))**2
+
+    clcibP = (2.*np.pi/ell**2)*ap*(ell/ell0)**2*mu2/mu02
+    clcibC = (2.*np.pi/ell**2)*ac*(ell/ell0)**(2-n)*mu2/mu02
+
+    return clcibP, clcibC
