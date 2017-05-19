@@ -2,13 +2,15 @@ import numpy as np
 from scipy import interpolate, integrate, linalg, special
 from astropy import constants as const
 from defaults import *
-from utils import V_bin, W_Delta, nl_cmb
+from utils import V_bin, W_Delta, nl_cmb, bl, cib_cls
 from mass_func import MassFunction
 from corr_func import CorrFunction
 from universe import Cosmo
+from profiles import ClusterOpticalDepth
 import copy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
+from astropy.convolution import convolve, Gaussian2DKernel
 
 class Pairwise(object):
 	"""
@@ -17,7 +19,7 @@ class Pairwise(object):
 	Attributes
 	----------
 	cosmo : Cosmo object (from universe.py)
-	    Cosmology object
+		Cosmology object
 
 	"""
 	def __init__(self, cosmo):
@@ -163,7 +165,7 @@ class BinPairwise(object):
 	Attributes
 	----------
 	cosmo : Cosmo object (from universe.py)
-	    Cosmology object
+		Cosmology object
 	
 	z_min : float
 		Minimum redshift of LSS survey 
@@ -273,12 +275,12 @@ class BinPairwise(object):
 		self.nhalo = np.zeros(self.Nz)
 		self.bias  = np.zeros(self.Nz)
 
-		hmf = MassFunction(self.cosmo)
+		self.hmf = MassFunction(self.cosmo)
 
 		# Loop over z-bins
 		for idz, z in enumerate(self.zmean):
-			self.nhalo[idz] = hmf.n_cl(z=z, M_min=self.M_min, M_max=self.M_max) #* self.dz # FIXME: multiply by dz ~ integration over z
-			self.bias[idz]  = hmf.bias_avg(z=z, M_min=self.M_min, M_max=self.M_max)
+			self.nhalo[idz] = self.hmf.n_cl(z=z, M_min=self.M_min, M_max=self.M_max) #* self.dz # FIXME: multiply by dz ~ integration over z
+			self.bias[idz]  = self.hmf.bias_avg(z=z, M_min=self.M_min, M_max=self.M_max)
 		
 		self.initialized_hmf = True	
 		
@@ -422,7 +424,7 @@ class BinPairwise(object):
 					fact__ = fact_ / (1 + self.bias[idz]**2 * self.xi[idz](self.rmean[idrp]))
 					integral = integrate.quad(self.Cov_cosmic_integrand, self.kmin, self.kmax, 
 											  args=(self.rbin_edges[idr], self.rbin_edges[idr+1], self.rbin_edges[idrp], self.rbin_edges[idrp+1], z, idz),  
-						                      epsabs=0.0, epsrel=1e-5, limit=100)[0]
+											  epsabs=0.0, epsrel=1e-5, limit=100)[0]
 					cov_cosmic[idz][idr,idrp] = integral * fact__
 					# cov_cosmic[idz][idrp,idr] = cov_cosmic[idz][idr,idrp]
 
@@ -474,8 +476,8 @@ class BinPairwise(object):
 				# for idrp in xrange(idr+1):
 					fact__ = fact_ / self.V_Delta[idz][idrp]
 					integral = integrate.quad(self.Cov_poiss_shot_integrand, self.kmin, self.kmax, 
-						                      args=(self.rbin_edges[idr], self.rbin_edges[idr+1], z, idz), 
-						                      epsabs=0.0, epsrel=1e-5, limit=200)
+											  args=(self.rbin_edges[idr], self.rbin_edges[idr+1], z, idz), 
+											  epsabs=0.0, epsrel=1e-5, limit=200)
 					# print integral[1]/integral[0], integral[0], idr, idrp
 					cov_poiss_shot[idz][idr,idrp] = integral[0] * fact__
 					# cov_poiss_shot[idz][idrp,idr] = cov_poiss_shot[idz][idr,idrp]
@@ -492,14 +494,89 @@ class BinPairwise(object):
 		return (k * self.cosmo.pkz.P(z, k) * self.bias[idz] /self.nhalo[idz]**2)  * W_Delta(k, Rmin, Rmax)
 
 	def sigma_T_kSZ(self, theta_R, noise_uK_arcmin, fwhm_arcmin, lmax, lknee=1e-9, alpha=0.):
+		# theta_R in *arcmin*
 		theta_R = np.radians(theta_R/60.)
-		cmb = self.cosmo.cmb_spectra(lmax=lmax)[2:,0]
-		nl = nl_cmb(noise_uK_arcmin, fwhm_arcmin, lmax=lmax, lknee=lknee, alpha=alpha)[2:]
-		C_ell = np.nan_to_num(cmb + nl) # + FG
 		ells = np.arange(2, lmax+1)
-		integral = integrate.simps(ells * C_ell * self.W_AP(ells, theta_R)**2, x=ells) 
-		return np.sqrt( 2 * np.pi * theta_R**4 * integral)
+		cmb = self.cosmo.cmb_spectra(lmax=lmax)[2:,0]
+		bl2 = bl(fwhm_arcmin, lmax=lmax)[2:]**2
+		nl = nl_cmb(noise_uK_arcmin, 0., lmax=lmax, lknee=lknee, alpha=alpha)[2:]
+		(clcibP, clcibC) = 0.,0 #cib_cls(ells)
+		C_ell = np.nan_to_num((cmb + clcibP + clcibP)* bl2 + nl) # + FG
+
+		# integral = integrate.simps(ells * C_ell * self.W_AP(ells, theta_R)**2, x=ells) 
+		integrand = ells * C_ell * (self.W_disk(ells, theta_R)**2 + \
+									self.W_annulus(ells, theta_R)**2 - \
+									2*self.W_disk(ells, theta_R) * self.W_annulus(ells,theta_R))
+		# plt.loglog(ells, integrand)
+		# plt.plot(ells, self.W_disk(ells, theta_R)**2 + self.W_annulus(ells, theta_R)**2 - 2*self.W_disk(ells, theta_R) * self.W_annulus(ells,theta_R))
+		integral = (1./(2.*np.pi)) * integrate.simps(integrand, x=ells)
+
+		# return integral
+		return np.sqrt(integral)
+		# return np.sqrt( 2 * np.pi * theta_R**4 * integral)
 		
-	@staticmethod
+	# @staticmethod
 	def W_AP(self, ell, theta_R):
+		# theta_R in *radians*
 		return (2.*special.jv(1, ell*theta_R) - np.sqrt(2)*special.jv(1, np.sqrt(2)*ell*theta_R)) / (ell * theta_R)
+
+	def W_disk(self, ell, theta_R):
+		return 2.*special.jv(1, ell * theta_R) / (ell * theta_R)
+
+	def W_annulus(self, ell, theta_R):
+		theta1 = theta_R
+		theta2 = np.sqrt(2)*theta_R
+		return 2.*(theta1 * special.jv(1,ell * theta1) - theta2 *
+					 special.jv(1,ell * theta2)) / (ell * (theta1**2 - theta2**2))
+		# return (np.sqrt(2) * theta_R * special.jv(1, np.sqrt(2)*ell*theta_R) - theta_R * special.jv(1, ell*theta_R)) / (ell * theta_R**2)
+
+	def GetSigmaV(self, noise_uK_arcmin, fwhm_arcmin, z, theta_R=3., Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., M=None):
+		"""
+		We write the error on the measured velocity as
+		\sigma_V = \sqrt{ \sigma_inst^2 + \sigma_tau^2}
+		where 
+		i.  \sigma_inst = \sigma_T_kSZ/T_kSZ * v
+		ii. \sigma_tau  =  
+		""" 
+		if M is None:
+			if self.M_max is None:
+				M_max = 1e16
+			else:
+				M_max = self.M_max
+			M_ = np.linspace(self.M_min,M_max)
+			M = integrate.simps(self.hmf.dndm(M_, z) * M_, x=M_)/integrate.simps(self.hmf.dndm(M_,z), x=M_)
+
+		sigma_T_kSZ = self.sigma_T_kSZ(theta_R, noise_uK_arcmin, fwhm_arcmin, lmax=self.cosmo.lmax, lknee=lknee, alpha=alpha) 
+		T_kSZ = self.GetT_kSZ(M, theta_R, z, fwhm_arcmin=fwhm_arcmin, fid_v=fid_v)
+		print sigma_T_kSZ/T_kSZ*fid_v, sigma_T_kSZ, T_kSZ, 
+		sigma_inst = (sigma_T_kSZ / T_kSZ) * fid_v
+		sigma_tau  = Delta_tau_over_tau * fid_v
+
+		return np.sqrt(sigma_inst**2 + sigma_tau**2)
+
+	def GetT_kSZ(self, M, theta_R, z, fwhm_arcmin=0., fid_v=300.): # \muK
+		return ClusterOpticalDepth(self.cosmo).GetApertureTau(M, z, theta_R, fwhm_arcmin=fwhm_arcmin) * fid_v / const.c.to('km/s').value * 2.725e6
+
+	def GetS2N(self, noise_uK_arcmin, fwhm_arcmin, Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., cov_cosmic=None, cov_gauss_shot=None):
+		if cov_cosmic is None:
+			cov_cosmic = self.Cov_cosmic()
+		if cov_gauss_shot is None:
+			cov_gauss_shot = self.Cov_gauss_shot()
+
+		# TODO: check if format of the passed covariances is valid
+
+		sigma_v = self.GetSigmaV(noise_uK_arcmin, fwhm_arcmin, Delta_tau_over_tau=Delta_tau_over_tau, fid_v=fid_v, lknee=lknee, alpha=alpha)
+
+		cov_meas = self.Cov_meas(sigma_v)
+
+		cov = {i : cov_cosmic[i] + cov_gauss_shot[i] + cov_meas[i] for i in xrange(self.Nz)}
+
+		S2N = 0
+		for idz in xrange(self.Nz):
+			inv_cov = np.linalg.inv(cov[idz])
+			S2N = S2N + np.dot(self.V_Delta[idz], np.dot(inv_cov, self.V_Delta[idz]))	
+
+		return np.sqrt(S2N)
+
+
+

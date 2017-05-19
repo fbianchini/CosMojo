@@ -28,7 +28,7 @@ class Cosmo(object):
 
 	TODO: add reionization parameters, add w_a
 	"""
-	def __init__(self, params=None, lmax=3000, **kwargs): 
+	def __init__(self, params=None, lmax=5000, **kwargs): 
 
 		self.lmax = lmax
 
@@ -68,7 +68,7 @@ class Cosmo(object):
 		
 		# pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=self.params_dict['wa'])
 
-		pars.set_for_lmax(lmax=self.lmax, lens_potential_accuracy=1.0)
+		pars.set_for_lmax(lmax=self.lmax, lens_potential_accuracy=2.0)
 		# pars.set_accuracy(AccuracyBoost=3.0, lSampleBoost=3.0, lAccuracyBoost=3.0)
 
 		if params['r'] != 0:
@@ -89,6 +89,8 @@ class Cosmo(object):
 		nonlinear = False # Linear matter power spectrum as a defaults 
 		# self.pars.NonLinear = NonLinear_none
 
+		self.pars.NonLinear_lens = 0
+
 		for kw in kwargs:
 			if kw == 'pk_kmin':
 				self.kmin = kwargs[kw]
@@ -97,6 +99,9 @@ class Cosmo(object):
 			if kw == 'NonLinear' or kw == 'nonlinear':
 				nonlinear = True
 				camb.set_halofit_version('takahashi') # FIXME: let the user choose which NL prescription
+			if kw == 'NonLinearLens' or kw == 'nonlinearlens':
+				self.pars.NonLinear_lens = 2
+				print 'yeah'
 
 		self.pkz = camb.get_matter_power_interpolator(self.pars, nonlinear=nonlinear, hubble_units=False, k_hunit=False, kmax=self.kmax, zmax=self.zstar)
 
