@@ -78,7 +78,7 @@ default_cmb_survey_dict = {
     'lminP'  : 2,       # Minimum multipole Polarization
     'lminK'  : 2,       # Minimum multipole CMB lensing
     'DeltaT' : 3,       # Noise in Temperature [\muK-arcmin]
-    'DeltaP' : 3*1.414, # Noise in Polarization [\muK-arcmin]
+    'DeltaP' : 4.242,   # Noise in Polarization [\muK-arcmin]
     'fwhm'   : 3.,      # Beam [arcmin]
     'lknee'  : 1e-9,
     'alpha'  : 0.,
