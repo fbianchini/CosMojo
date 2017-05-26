@@ -92,6 +92,20 @@ def dB_nu_dT(nu, T_cmb=2.725):
 	x = h_planck*(nu*1e9)/(k_B*T_cmb)
 	return 2.*k_B/c_light**2 * x**2*np.exp(x)/(np.exp(x)-1)**2
 
+def Kcmb2MJysr(nu, DeltaT, T_cmb=2.725):
+	""" 
+	Returns the planck blackbody function (in W sr^{-1} Hz^{-1} or MJy/sr)
+	at frequency \nu (in GHz) for a blackbody with temperature T (in K). 
+
+	Parameters
+	----------
+	nu : float
+		Frequency in GHz
+	"""
+	x = h_planck*(nu*1e9)/(k_B*T_cmb)
+	bb = B_nu(nu, T_cmb=T_cmb, MJy_sr=True)
+	return bb * x * np.exp(x)/(np.exp(x)-1.) * DeltaT
+
 def RJ_law(nu, T_cmb=2.725, MJy_sr=False):
 	"""
 	The Rayleigh Jeans limit of Planck's law for h*nu << kT
