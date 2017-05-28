@@ -1,5 +1,5 @@
 import numpy as np
-from scipy import interpolate, integrate, linalg, special
+from scipy import interpolate, integrate, linalg, special, optimize
 from astropy import constants as const
 from defaults import *
 from utils import V_bin, W_Delta, nl_cmb, bl, cib_cls
@@ -197,7 +197,11 @@ class BinPairwise(object):
 	def __init__(self, cosmo, zmin, zmax, Nz, rmin, rmax, Nr, fsky=1., M_min=None, M_max=None, kmin=None, kmax=None, verbose=False):
 		self.cosmo = cosmo
 		self.fsky  = fsky
+		if M_min is None:
+			M_min = 1e14
 		self.M_min = M_min
+		if M_max is None:
+			M_max = 1e16
 		self.M_max = M_max
 		self.verbose = verbose
 
@@ -493,14 +497,30 @@ class BinPairwise(object):
 	def Cov_poiss_shot_integrand(self, k, Rmin, Rmax, z, idz):
 		return (k * self.cosmo.pkz.P(z, k) * self.bias[idz] /self.nhalo[idz]**2)  * W_Delta(k, Rmin, Rmax)
 
-	def sigma_T_kSZ(self, theta_R, noise_uK_arcmin, fwhm_arcmin, lmax, lknee=1e-9, alpha=0.):
+	def sigma_T_kSZ(self, theta_R, noise_uK_arcmin, fwhm_arcmin, lmax, lknee=1e-9, alpha=0., cmb=True, fg=False):
 		# theta_R in *arcmin*
 		theta_R = np.radians(theta_R/60.)
 		ells = np.arange(2, lmax+1)
-		cmb = self.cosmo.cmb_spectra(lmax=lmax)[2:,0]
-		bl2 = bl(fwhm_arcmin, lmax=lmax)[2:]**2
+
+		# Primary lensed CMB
+		if cmb:
+			cmb = self.cosmo.cmb_spectra(lmax=lmax)[2:,0]
+		else:
+			cmb = 0.
+
+		# Beam
+		bl2 = bl(fwhm_arcmin, lmax=lmax)[2:]**2 
+
+		# Instrumental noise (no beam)
 		nl = nl_cmb(noise_uK_arcmin, 0., lmax=lmax, lknee=lknee, alpha=alpha)[2:]
-		(clcibP, clcibC) = 0.,0 #cib_cls(ells)
+		
+		# Foregrounds
+		if fg:
+			(clcibP, clcibC) = 0.,0 #cib_cls(ells)
+		else:
+			(clcibP, clcibC) = 0.,0 #cib_cls(ells)
+		
+		# Summing up the MW sky components
 		C_ell = np.nan_to_num((cmb + clcibP + clcibP)* bl2 + nl) # + FG
 
 		# integral = integrate.simps(ells * C_ell * self.W_AP(ells, theta_R)**2, x=ells) 
@@ -530,7 +550,7 @@ class BinPairwise(object):
 					 special.jv(1,ell * theta2)) / (ell * (theta1**2 - theta2**2))
 		# return (np.sqrt(2) * theta_R * special.jv(1, np.sqrt(2)*ell*theta_R) - theta_R * special.jv(1, ell*theta_R)) / (ell * theta_R**2)
 
-	def GetSigmaV(self, noise_uK_arcmin, fwhm_arcmin, z, theta_R=3., Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., M=None):
+	def GetSigmaV(self, noise_uK_arcmin, fwhm_arcmin, z, theta_R=3., Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., M=None, profile='Battaglia'):
 		"""
 		We write the error on the measured velocity as
 		\sigma_V = \sqrt{ \sigma_inst^2 + \sigma_tau^2}
@@ -538,44 +558,47 @@ class BinPairwise(object):
 		i.  \sigma_inst = \sigma_T_kSZ/T_kSZ * v
 		ii. \sigma_tau  =  
 		""" 
-		if M is None:
-			if self.M_max is None:
-				M_max = 1e16
-			else:
-				M_max = self.M_max
-			M_ = np.linspace(self.M_min,M_max)
-			M = integrate.simps(self.hmf.dndm(M_, z) * M_, x=M_)/integrate.simps(self.hmf.dndm(M_,z), x=M_)
+		if M is None: 
+			# Mean
+			# M_ = np.linspace(self.M_min,self.M_max)
+			# M = integrate.simps(self.hmf.dndm(M_, z) * M_, x=M_)/integrate.simps(self.hmf.dndm(M_,z), x=M_)
+
+			# Median
+			dndm_temp = lambda m: self.hmf.dndm(m, z)
+			dndm_int = integrate.romberg(dndm_temp, self.M_min, self.M_max)
+			f = lambda x: integrate.romberg(dndm_temp, self.M_min, x) - dndm_int/2.
+			M = optimize.brentq(f, self.M_min, self.M_max)
+			print M
 
 		sigma_T_kSZ = self.sigma_T_kSZ(theta_R, noise_uK_arcmin, fwhm_arcmin, lmax=self.cosmo.lmax, lknee=lknee, alpha=alpha) 
-		T_kSZ = self.GetT_kSZ(M, theta_R, z, fwhm_arcmin=fwhm_arcmin, fid_v=fid_v)
+		T_kSZ = self.GetT_kSZ(M, theta_R, z, fwhm_arcmin=fwhm_arcmin, fid_v=fid_v, profile=profile)
 		print sigma_T_kSZ/T_kSZ*fid_v, sigma_T_kSZ, T_kSZ, 
 		sigma_inst = (sigma_T_kSZ / T_kSZ) * fid_v
 		sigma_tau  = Delta_tau_over_tau * fid_v
 
 		return np.sqrt(sigma_inst**2 + sigma_tau**2)
 
-	def GetT_kSZ(self, M, theta_R, z, fwhm_arcmin=0., fid_v=300.): # \muK
-		return ClusterOpticalDepth(self.cosmo).GetApertureTau(M, z, theta_R, fwhm_arcmin=fwhm_arcmin) * fid_v / const.c.to('km/s').value * 2.725e6
+	def GetT_kSZ(self, M, z, theta_R, fwhm_arcmin=0., fid_v=300., profile='Battaglia'): # \muK
+		return ClusterOpticalDepth(self.cosmo).GetApertureTau(M, z, theta_R, fwhm_arcmin=fwhm_arcmin, profile=profile) * fid_v / const.c.to('km/s').value * 2.725e6
 
-	def GetS2N(self, noise_uK_arcmin, fwhm_arcmin, Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., cov_cosmic=None, cov_gauss_shot=None):
+	def GetS2N(self, noise_uK_arcmin, fwhm_arcmin, theta_R, Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., cov_cosmic=None, cov_gauss_shot=None, profile='battaglia'):
 		if cov_cosmic is None:
-			cov_cosmic = self.Cov_cosmic()
+			cov_cosmic = self.Cov_cosmic().copy()
 		if cov_gauss_shot is None:
-			cov_gauss_shot = self.Cov_gauss_shot()
+			cov_gauss_shot = self.Cov_gauss_shot().copy()
 
 		# TODO: check if format of the passed covariances is valid
 
-		sigma_v = self.GetSigmaV(noise_uK_arcmin, fwhm_arcmin, Delta_tau_over_tau=Delta_tau_over_tau, fid_v=fid_v, lknee=lknee, alpha=alpha)
-
-		cov_meas = self.Cov_meas(sigma_v)
-
-		cov = {i : cov_cosmic[i] + cov_gauss_shot[i] + cov_meas[i] for i in xrange(self.Nz)}
-
 		S2N = 0
 		for idz in xrange(self.Nz):
+			sigma_v = self.GetSigmaV(noise_uK_arcmin, fwhm_arcmin, self.zmean[idz], theta_R=theta_R, Delta_tau_over_tau=Delta_tau_over_tau, fid_v=fid_v, lknee=lknee, alpha=alpha, profile=profile)
+			# cov_meas = self.Cov_meas(500.)
+			cov_meas = self.Cov_meas(sigma_v)
+			cov = {i : cov_cosmic[i] + cov_gauss_shot[i] + cov_meas[i] for i in xrange(self.Nz)}
 			inv_cov = np.linalg.inv(cov[idz])
 			S2N = S2N + np.dot(self.V_Delta[idz], np.dot(inv_cov, self.V_Delta[idz]))	
-
+			# plt.errorbar(self.rmean, self.V_Delta[idz], yerr=np.sqrt(np.diag(cov[idz])))
+			# plt.axhline(ls='--')
 		return np.sqrt(S2N)
 
 
