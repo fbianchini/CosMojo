@@ -13,6 +13,58 @@ from IPython import embed
 import copy
 from scipy.interpolate import RectBivariateSpline
 
+def GuessH0(_100thetaMC, params, xtol=1e-5):
+	"""
+	Returns H0 given the 100\theta, the angular size of the sound horizon at the time of recombination, 
+	and the other params through the Brent method.
+	"""
+	# for key, val in params.iteritems():
+	# 	print key, val
+
+	for key, val in default_cosmo_dict.iteritems():
+		params.setdefault(key,val)
+
+	# # print '--------------'
+	# params_ini = params.copy()
+
+	# for par in params_ini.keys():
+	# 	if par == 'gamma0':
+	# 		params_ini.pop(par)
+	# 	if par == 'gammaa':
+	# 		params_ini.pop(par)
+	# 	if par == 'w':
+	# 		params_ini.pop(par)
+	# 	if par == 'wa':
+	# 		params_ini.pop(par)
+	# 	if par == 'cs2':
+	# 		params_ini.pop(par)
+	# 	if par == '100theta':
+	# 		params_ini.pop(par)
+	# 	if par == 'H0':
+	# 		params_ini.pop(par)
+
+	# Initialize CAMB
+	# pars = camb.set_params(**params_ini)
+	pars = camb.CAMBparams()
+	# print pars.H0
+
+	if params['wa'] == 0.:
+		pars.set_dark_energy(w=params['w'], cs2=params['cs2'], wa=0, dark_energy_model='fluid')
+	else:
+		pars.set_dark_energy(w=params['w'], cs2=params['cs2'], wa=params['wa'], dark_energy_model='ppf')
+
+	pars.InitPower.set_params(As=params['As'], ns=params['ns'], r=params['r'])
+
+	def Get100Theta(H0):
+		pars.set_cosmology(H0=H0, ombh2=params['ombh2'], omch2=params['omch2'], tau=params['tau'], mnu=params['mnu'], nnu=params['nnu'], omk=params['omk'])
+		# pars.set_cosmology(H0=H0)
+		# print pars.H0
+		results = camb.get_results(pars)
+		_100theta = 100.*results.cosmomc_theta()
+		# print _100theta
+		return _100theta - _100thetaMC
+
+	return optimize.brentq(Get100Theta, 30., 100., xtol=xtol)
 
 class Cosmo(object):
 	""" 
@@ -56,6 +108,8 @@ class Cosmo(object):
 				params.pop(par)
 			if par == 'cs2':
 				params.pop(par)
+			if par == '100theta':
+				params.pop(par)
 
 
 		# Initialize CAMB
@@ -69,6 +123,7 @@ class Cosmo(object):
 		# pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=self.params_dict['wa'])
 
 		pars.set_for_lmax(lmax=self.lmax, lens_potential_accuracy=2.0)
+		# pars.set_accuracy(AccuracyBoost=2.0, lSampleBoost=2.0, lAccuracyBoost=2.0)
 		# pars.set_accuracy(AccuracyBoost=3.0, lSampleBoost=3.0, lAccuracyBoost=3.0)
 
 		if params['r'] != 0:
@@ -117,10 +172,9 @@ class Cosmo(object):
 		self.As     = self.pars.InitPower.ScalarPowerAmp[0]
 		self.r      = self.pars.InitPower.rat[0]
 		self.w      = self.params_dict['w']
-		# self.wa     = self.params_dict['wa']
+		self.wa     = self.params_dict['wa']
 		self.gamma0 = self.params_dict['gamma0']
 		self.gammaa = self.params_dict['gammaa']
-
 
 	def rho_c(self, z): # [kg/m^3]
 		"""
@@ -239,6 +293,7 @@ class Cosmo(object):
 		gamma = gamma0 - z/(1+z)*gammaa
 
 		return self.omegam / self.f_z(z, gamma0=gamma0, gammaa=gammaa)
+
 	def dVdz(self, z): 
 		""" 
 		The differential comoving volume element :math: `dV_c / / dz, 
