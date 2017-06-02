@@ -3,18 +3,35 @@ from scipy import linalg
 from astropy import constants as const
 from defaults import *
 from utils import nl_cmb
-from universe import Cosmo
+from universe import Cosmo, GuessH0
 from pairwise import BinPairwise
 import copy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
+Labels = {'omch2'   : r'$\Omega_c h^2$',
+		  'ombh2'   : r'$\Omega_b h^2$',
+		  'ns'      : r'$n_s$',
+		  'As'      : r'$10^9 A_s$',
+		  'tau'     : r'$\tau$',
+		  'H0'      : r'$h$',
+		  'w'       : r'$w_0$',
+		  'wa'      : r'$w_a$',
+		  'mnu'     : r'$\sum m_{\nu}$',
+		  'nnu'     : r'$N_{\rm eff}$',
+		  'YHe'     : r'$Y_{\rm He}$',
+		  '100theta': r'$100\theta_{\rm MC}$',
+		  'gamma0'  : r'$\gamma_0$',
+		  'gammaa'  : r'$\gamma_a$'}
+
 class Fisher(object):
 	def __init__(self, fid_cosmo=None, 
 					   fid_surv=None, 
-					   params=None, 
+					   params=None,
+					   margin_params=[], 
 					   priors={}, 
 					   steps={},
+					   inv_routine=np.linalg.inv,
 					   verbose=False):
 
 		self.fid_cosmo = fid_cosmo.copy()
@@ -23,9 +40,29 @@ class Fisher(object):
 		self.priors = {}
 		self.steps  = {}
 		self.step = 0.003
+		self.inv_routine = inv_routine
 		self.verbose = verbose
 
 		self.D = np.diag(np.ones(len(params)))
+
+		self.margin_params = []
+		for p in margin_params:
+			if p in self.fid_cosmo.keys() or p in self.fid_surv.keys():
+				self.margin_params.append(p)
+			else:
+				print("Warning, requested marginalisation parameter " + p + " is not included in the analysis")
+
+
+		# Precomputed Fisher matrix
+		self._fullMat = None
+		self._fullInvMat = None
+		self._mat = None
+		self._invmat = None
+
+		self._fullMat_scaled = None
+		self._fullInvMat_scaled = None
+		self._mat_scaled = None
+		self._invmat_scaled = None
 
 	def _computeObservables(self):
 		pass
@@ -39,7 +76,7 @@ class Fisher(object):
 	def _computeDerivatives(self):
 		pass
 
-	def Fij(self, param_i, param_j):
+	def Fij(self, param_i, param_j, scaled=True):
 		"""
 		Returns the matrix element of the Fisher matrix for parameters
 		param_i and param_j
@@ -47,10 +84,12 @@ class Fisher(object):
 		i = self.params.index(param_i)
 		j = self.params.index(param_j)
 
-		# return self.mat[i, j]
-		return reduce(np.dot, [self.D, self.mat, self.D])[i, j]
+		if scaled:
+			return reduce(np.dot, [self.D, self.mat(scaled=True), self.D])[i, j]
+		else:
+			return self.mat()[i, j]
 
-	def invFij(self, param_i, param_j):
+	def invFij(self, param_i, param_j, scaled=True):
 		"""
 		Returns the matrix element of the inverse Fisher matrix for
 		parameters param_i and param_j
@@ -58,14 +97,16 @@ class Fisher(object):
 		i = self.params.index(param_i)
 		j = self.params.index(param_j)
 
-		# return self.invmat[i, j]
-		return reduce(np.dot, [self.D, self.invmat, self.D])[i, j]
+		if scaled:
+			return reduce(np.dot, [self.D, self.invmat(scaled=True), self.D])[i, j]
+		else:
+			return self.invmat()[i, j]
 
-	def sigma_fix(self, param):
-		return 1.0 / np.sqrt(self.Fij(param, param))
+	def sigma_fix(self, param, scaled=True):
+		return 1.0 / np.sqrt(self.Fij(param, param, scaled=scaled))
 
-	def sigma_marg(self, param):
-		return np.sqrt(self.invFij(param, param))
+	def sigma_marg(self, param, scaled=True):
+		return np.sqrt(self.invFij(param, param, scaled=scaled))
 
 	def _marginalise(self, params):
 		""" 
@@ -88,14 +129,11 @@ class Fisher(object):
 			indi = self.params.index(params[i])
 			for j in xrange(len(params)):
 				indj = self.params.index(params[j])
-				marg_inv[i, j] = self.invmat[indi, indj]
+				marg_inv[i, j] = self.invmat(scaled=True)[indi, indj]
 				D_[i, j] = self.D[indi, indj]
 
-		marg_mat = reduce(np.dot, [D_, np.linalg.inv(marg_inv), D_])
+		marg_mat = reduce(np.dot, [D_, self.inv_routine(marg_inv), D_])
 		marg_inv = reduce(np.dot, [D_, marg_inv, D_])
-
-		# marg_mat = np.linalg.inv(marg_inv)
-		# marg_mat = reduce(np.dot, [vecs, np.linalg.inv(marg_inv), np.linalg.inv(vecs)])
 
 		return (marg_mat, marg_inv)
 
@@ -117,64 +155,62 @@ class Fisher(object):
 		"""
 		return np.log(1.0 / abs(linalg.det(self.invmat)))
 
-	@property
-	def invmat(self):
+	# @property
+	def invmat(self, scaled=False):
 		"""
-		Returns the (scaled) inverse fisher matrix (= covariance)
+		Returns the inverse Fisher matrix (= covariance)
 		"""
-		if self._invmat is None:
-			self._invmat = np.linalg.inv(self.mat)
-		return self._invmat
+		if scaled:
+			if self._invmat_scaled is None:
+				self._invmat_scaled = self.inv_routine(self.mat(scaled=True))
+			return self._invmat_scaled
+		else:
+			if self._invmat is None:
+				self._invmat = self.inv_routine(self.mat)
+			return self._invmat
 
-	@property
-	def mat(self):
-		"""
-		Returns the (scaled) fisher matrix marginalised over nuisance parameters
-		"""
-		# If the matrix is not already computed, compute it
-		if self._mat is None:
-			_fullMat = self._computeFullMatrix()
-
-			# print np.linalg.cond(_fullMat)
-
-			# invert Fisher matrix (get the covariance)
+	# @staticmethod
+	def _rescaleFisherMatrix(self, F, simple=True, return_scaling_matrix=True):
+		if simple:
+			D = np.diag(1./np.sqrt(np.diag(F)))
+			F_scaled = reduce(np.dot, [D, F, D]) # rescaled Fisher matrix
+		else:
 			# see https://www.cs.ubc.ca/~inutard/files/cs517-project.pdf
-			T = np.tril(_fullMat)
+			T = np.tril(F)
 			d = np.zeros(T.shape[0])
 			for i in xrange(T.shape[0]):
 			    # print np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])
 			    d[i] = 1. / np.max( [np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])] )
-			self.D = np.diag(d)
-			self._fullMat = reduce(np.dot, [self.D, _fullMat, self.D]) # rescaled Fisher matrix
+			D = np.diag(d)
+			F_scaled = reduce(np.dot, [D, F, D]) # rescaled Fisher matrix
 
-			# self._fullMat = _fullMat
+		if return_scaling_matrix:
+			return F_scaled, D
+		else:
+			return F_scaled
 
-			# self.D = np.diag(1./np.sqrt(np.diag(_fullMat)))
-			# print'internal'
-			# print _fullMat
-			# print ''
-			# print self.D
-			# print'internal'
-			# self._fullMat = reduce(np.dot, [self.D, _fullMat, self.D]) # rescaled Fisher matrix
+	# @property
+	def mat(self, scaled=False, simple=True):
+		"""
+		Returns the Fisher matrix marginalised over nuisance parameters
+		"""
+		# If the Fisher matrix is not already computed, compute it
+		if (self._mat is None) or (self._mat_scaled is None):
+			self._fullMat = self._computeFullMatrix() # Full (w/ margin params) Fisher matrix
+			self._fullMat_scaled, self.D_fullMat = self._rescaleFisherMatrix(self._fullMat, simple=simple, return_scaling_matrix=True) # rescaled Full (w/ margin params) Fisher matrix  
+			self._fullInvMat_scaled = self.inv_routine(self._fullMat_scaled) # rescaled Full (w/ margin params) Covariance matrix 
+			self._fullInvMat = reduce(np.dot, [self.D_fullMat, self._fullInvMat_scaled, self.D_fullMat]) # Full (w/ margin params) Covariance matrix 
 
-			# print np.linalg.cond(self._fullMat)
+			# Apply marginalisation over nuisance parameters 
+			self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
+			self._mat = self.inv_routine(self._invmat)
+			self._mat_scaled, self.D = self._rescaleFisherMatrix(self._mat, simple=simple, return_scaling_matrix=True) # rescaled marginalizes Fisher matrix  
+			self._invmat_scaled = self.inv_routine(self._mat_scaled)
 
-			self._fullInvMat = np.linalg.inv(self._fullMat) # rescaled Covariance matrix
-			
-			# SVD method
-			# vals, vecs = np.linalg.eig(self._fullMat)
-			# self._fullInvMat = reduce(np.dot, [vecs, np.diag(1./vals), np.linalg.inv(vecs)])
-
-			self._invmat = self._fullInvMat.copy()
-			self._mat = self._fullMat.copy()
-
-			# print self._mat
-
-			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
-			# self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
-			# self._mat = np.linalg.inv(self._invmat)
-
-		return self._mat
+		if scaled:
+			return self._mat_scaled
+		else:
+			return self._mat
 
 	def clearall(self):
 		print("...!!! erasing Fisher matrix & covariance !!!...")
@@ -182,6 +218,11 @@ class Fisher(object):
 		self._fullInvMat = None
 		self._mat = None
 		self._invmat = None
+
+		self._fullMat_scaled = None
+		self._fullInvMat_scaled = None
+		self._mat_scaled = None
+		self._invmat_scaled = None
 		print("...done...")
 
 	def corner_plot(self, nstd=1, labels=None, **kwargs):
@@ -199,11 +240,13 @@ class Fisher(object):
 				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, labels=False, **kwargs)
 
 				if i == len(self.params) - 1:
-					ax.set_xlabel(labels[j])
+					# ax.set_xlabel(labels[j])
+					ax.set_xlabel(Labels[self.params[j]])
 				else:
 					ax.set_xticklabels([])
 				if j == 0:
-					ax.set_ylabel(labels[i])
+					# ax.set_ylabel(labels[i])
+					ax.set_ylabel(Labels[self.params[i]])
 				else:
 					ax.set_yticklabels([])
 
@@ -285,8 +328,8 @@ class Fisher(object):
 			#ax.set_ylim(pos[1] - sz, pos[1] + sz)
 
 		if labels is None:
-			ax.set_xlabel(p1)
-			ax.set_ylabel(p2)
+			ax.set_xlabel(Labels[p1])
+			ax.set_ylabel(Labels[p2])
 		elif labels is False:
 			pass
 		else:
@@ -294,7 +337,11 @@ class Fisher(object):
 			ax.set_ylabel(labels[1], size=14)
 
 		if tag is not None:
-			ax.legend([ellip], tag)
+			if ellip.fill:
+				ax.plot(1e5,1e5, color=ellip.get_facecolor(), label=tag)
+			else:
+				ax.plot(1e5,1e5, color=ellip.get_edgecolor(), label=tag)
+			# ax.legend([ellip], tag)
 
 		# ax.plot(pos, 'w+', mew=2.)
 		plt.draw()
@@ -308,7 +355,12 @@ class FisherCMB(Fisher):
 					   obs=['TT','EE','TE'],  
 					   priors={}, 
 					   steps={},
-					   verbose=False):#, margin_params=[]):
+					   margin_params=[],
+					   inv_routine=np.linalg.inv,
+					   verbose=False,
+					   path_file_NLKK=None,
+					   cls=None,
+					   dcldp=None):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
@@ -316,7 +368,7 @@ class FisherCMB(Fisher):
 		* params : list of Fisher analysis parameters
 		"""
 
-		super(FisherCMB, self).__init__(fid_cosmo, fid_surv, params, priors, steps, verbose)
+		super(FisherCMB, self).__init__(fid_cosmo, fid_surv, params, margin_params, priors, steps, inv_routine, verbose)
 
 		# self.fid_cosmo = fid_cosmo.copy()
 		# self.fid_surv = fid_surv.copy()
@@ -354,20 +406,13 @@ class FisherCMB(Fisher):
 		if self.verbose:
 			for key, val in self.fid_surv.iteritems():
 				print key, val
-			print self.params
 
-		print ''
-		print self.fid_surv
-		print ''
+		# print ''
+		# print self.fid_surv
+		# print ''
 
-		# Checks that the marginalisation parameters are actually considered
-		# in the Fisher analysis
-		# self.margin_params = []
-		# for p in margin_params:
-		# 	if p in self.fid_surv.keys() or p in self.fid_cosmo.keys():
-		# 		self.margin_params.append(p)
-		# 	else:
-		# 		print("Warning, requested marginalisation parameter " + p + " is not included in the analysis")
+		if '100theta' in self.params:
+			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
@@ -390,30 +435,42 @@ class FisherCMB(Fisher):
 
 		if 'KK' in self.obs:
 			# Assumes nlkk_ starts from l = 0
-			l_, nlkk_ = np.loadtxt('../data/nlkk_cmb_s4_1muK_2fwhm_lmax2500.dat', unpack=True)
-			# l_, nlkk_ = np.loadtxt('../data/nlkk_planck2015.dat', unpack=True)
+			if path_file_NLKK is None:
+				l_, nlkk_ = np.loadtxt('../data/nlkk_cmb_s4_1muK_2fwhm_lmax2500.dat', unpack=True)
+				# l_, nlkk_ = np.loadtxt('../data/nlkk_planck2015.dat', unpack=True)
+			else:
+				l_, nlkk_ = np.loadtxt(path_file_NLKK, unpack=True)
 			self.NlKK[:nlkk_.size] = nlkk_
 			self.NlKK[:self.lminK] = 1.e40
 			self.NlKK[self.lmaxK+1:] = 1.e40
 
 		# print self.NlTT
 		# print self.NlPP
+		# print self.NlKK
 
 		# Compute fiducial CMB power spectra w/ fiducial cosmo + survey
-		print("...Computing fiducial CMB power spectra...")
-		self.cls = self.cosmo.cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
-		print("...done...")
+		if cls is None:
+			print("...Computing fiducial CMB power spectra...")
+			self.cls = self.cosmo.cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
+			print("...done...")
+		else:
+			self.cls = cls.copy()
 
 		# Compute derivatives
-		print("...Computing derivatives...")
-		self._dcldp = self._computeDerivatives()
-		print("...done...")
+		if dcldp is not None:
+			self._dcldp = copy.copy(dcldp)
+			print("...derivatives loaded...")
+			# if dcldp.shape[0] == len(params+margin_params):
+			# 	self._dcldp = dcldp
+			# else:
+			# 	print("...Computing derivatives...")
+			# 	self._dcldp = self._computeDerivatives()
+			# 	print("...done...")
+		else:
+			print("...Computing derivatives...")
+			self._dcldp = self._computeDerivatives()
+			print("...done...")
 
-		# Precomputed Fisher matrix
-		self._fullMat = None
-		self._fullInvMat = None
-		self._mat = None
-		self._invmat = None
 
 	def _computeCovariance(self, l):
 
@@ -426,45 +483,47 @@ class FisherCMB(Fisher):
 		f = 0.5
 
 		if set(self.obs) == set(['TT','TE','EE']):
-			mat = 2./((2*l+1)*self.fsky) * \
+			Cov = 2./((2*l+1)*self.fsky) * \
 				  np.asarray([[TT**2., TE**2., TT*TE           ],
 							  [TE**2., EE**2., EE*TE           ],
 							  [TT*TE,  EE*TE,  f*(TE**2.+TT*EE)]])
 
-		# if set(self.obs) == set(['EE','TE']):
-		# 	mat = 2./((2*l+1)*self.fsky) * \
-		# 		  np.asarray([[TT**2., TE**2., TT*TE           ],
-		# 					  [TT*TE,  EE*TE,  f*(TE**2.+TT*EE)]])
+		if set(self.obs) == set(['EE','TE']):
+			Cov = 2./((2*l+1)*self.fsky) * \
+				  np.asarray([[EE**2., EE*TE           ],
+							  [EE*TE,  f*(TE**2.+TT*EE)]])
 
 		if set(self.obs) == set(['TT','TE','EE', 'KK', 'KT']):
-			mat = 2./((2*l+1)*self.fsky) * \
+			Cov = 2./((2*l+1)*self.fsky) * \
 					np.array([[TT**2., TE**2., TT*TE,            KT*KT],
 			                  [TE**2., EE**2., EE*TE,            0.   ],
 			                  [TT*TE,  EE*TE,  f*(TE**2.+TT*EE), 0.   ],
 			                  [KT*KT,  0.,     0.,               KK*KK]])
 
 		if set(self.obs) == set(['TT','TE','EE', 'KK']):
-			mat = 2./((2*l+1)*self.fsky) * \
+			Cov = 2./((2*l+1)*self.fsky) * \
 					np.array([[TT**2., TE**2., TT*TE,            0.   ],
 			                  [TE**2., EE**2., EE*TE,            0.   ],
 			                  [TT*TE,  EE*TE,  f*(TE**2.+TT*EE), 0.   ],
 			                  [0.   ,  0.,     0.,               KK*KK]])
 
 		elif self.obs == ['TT']:
-			mat = 2./((2*l+1)*self.fsky) * TT**2
+			Cov = 2./((2*l+1)*self.fsky) * TT**2
 
 		elif self.obs == ['EE']:
-			mat = 2./((2*l+1)*self.fsky) * EE**2
+			Cov = 2./((2*l+1)*self.fsky) * EE**2
 
 		elif self.obs == ['TE']:
-			mat = 2./((2*l+1)*self.fsky) * f * (TE**2.+TT*EE)
+			Cov = 2./((2*l+1)*self.fsky) * f * (TE**2.+TT*EE)
 
 		elif self.obs == ['KK']:
-			mat = 2./((2*l+1)*self.fsky) * KK**2
+			Cov = 2./((2*l+1)*self.fsky) * KK**2
 
-		return mat
+		return Cov
 
 	def _computeObservables(self, par_cosmo):
+		if '100theta' in par_cosmo:
+			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
 		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
 
 	def _computeFullMatrix(self):
@@ -474,7 +533,7 @@ class FisherCMB(Fisher):
 			print("...done...")
 
 		# nparams = len(self._dvdp)
-		nparams = len(self.params)
+		nparams = len(self._dcldp)#len(self.params)
 
 		# print self._dvdp
 		# print self.inv_cov[0].shape
@@ -491,19 +550,25 @@ class FisherCMB(Fisher):
 					cov = self._computeCovariance(l)
 					
 					if set(self.obs) == set(['TT','TE','EE']):
-						inv_cov = np.linalg.inv(cov)
+						inv_cov = self.inv_routine(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
+
+					if set(self.obs) == set(['EE','TE']):
+						inv_cov = self.inv_routine(cov)
+						dcl_i = np.array([self._dcldp[i][l,1], self._dcldp[i][l,3]])
+						dcl_j = np.array([self._dcldp[j][l,1], self._dcldp[j][l,3]])
+						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
 					
 					elif set(self.obs) == set(['TT','TE','EE', 'KK', 'KT']):
-						inv_cov = np.linalg.inv(cov)
+						inv_cov = self.inv_routine(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3], self._dcldp[i][l,4]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3], self._dcldp[j][l,4]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
 
 					elif set(self.obs) == set(['TT','TE','EE', 'KK']):
-						inv_cov = np.linalg.inv(cov)
+						inv_cov = self.inv_routine(cov)
 						dcl_i = np.array([self._dcldp[i][l,0], self._dcldp[i][l,1], self._dcldp[i][l,3], self._dcldp[i][l,4]])
 						dcl_j = np.array([self._dcldp[j][l,0], self._dcldp[j][l,1], self._dcldp[j][l,3], self._dcldp[j][l,4]])
 						tmp += np.nan_to_num(np.dot(dcl_i, np.dot(inv_cov, dcl_j)))	
@@ -538,16 +603,31 @@ class FisherCMB(Fisher):
 
 		print("...done...")
 
+		# _Priors = np.zeros((nparams,nparams))
+		# for p in self.params:
+		# 	i = self.params.index(p)
+		# 	try:
+		# 		_Priors[i,i] = 1./self.priors[p]**2.
+		# 		print '\t...Including prior for', p, str(self.priors[p])
+		# 	except KeyError: 
+		# 		pass
+		# if (_Priors == 0).all():
+		# 	print '\t...No priors included...'
+
+		# Priors ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		_Priors = np.zeros((nparams,nparams))
-		for p in self.params:
-			i = self.params.index(p)
+		allparams = self.params + self.margin_params
+		for p in allparams:
+			i = allparams.index(p)
 			try:
 				_Priors[i,i] = 1./self.priors[p]**2.
-				print '\t...Including prior for', p, str(self.priors[p])
-			except KeyError: 
+				print '---Including prior for',p,str(self.priors[p])
+			except KeyError:
 				pass
 		if (_Priors == 0).all():
-			print '\t...No priors included...'
+			print '---No prior included'
+
+		_fullMat += _Priors
 
 		#print "prior matrix ",FisherPriors
 		#print "fisher before adding prior",self.totFisher
@@ -566,7 +646,7 @@ class FisherCMB(Fisher):
 		dcldp = []
 
 		# Computes all the derivatives with respect to the main parameters
-		for p in self.params:
+		for p in self.params + self.margin_params:
 			if self.verbose:
 				print("varying :" + p)
 
@@ -644,16 +724,18 @@ class FisherCMB(Fisher):
 				indj = self.params.index(params[j])
 				newFisher._mat[i, j] = self.mat[indi, indj]
 
-		newFisher._invmat = np.linalg.inv(newFisher._mat)
+		newFisher._invmat = self.inv_routine(newFisher._mat)
 
 		return newFisher
 
 class MultiFisherCMB(object):
 	def __init__(self, fid_cosmo, 
 					   params, 
-					   exps,  
+					   exps,
+					   margin_params=[],  
 					   priors={}, 
 					   steps={},
+					   inv_routine=np.linalg.inv,
 					   verbose=False):#, margin_params=[]):
 		"""
 		Constructor
@@ -670,6 +752,7 @@ class MultiFisherCMB(object):
 		self.exps   = exps
 		self.fisher = {}
 		self.fid_surv = {} # FIXME: just a quick hack to be able to make plots
+		self.inv_routine = inv_routine
 
 		# Check that the parameters provided are present in survey or cosmo
 		for p in params:
@@ -679,7 +762,7 @@ class MultiFisherCMB(object):
 			else:
 				print("Warning, unknown parameter in derivative :" + p)
 
-		self.D_multi = np.diag(np.ones(len(self.params)))
+		self.D = np.diag(np.ones(len(self.params)))
 
 		# Check and store priors
 		for key, val in priors.iteritems():
@@ -691,35 +774,51 @@ class MultiFisherCMB(object):
 			if key in self.params:
 				self.steps[key] = val
 
-		# Checks that the marginalisation parameters are actually considered
-		# in the Fisher analysis
-		# self.margin_params = []
-		# for p in margin_params:
-		# 	if p in self.fid_surv.keys() or p in self.fid_cosmo.keys():
-		# 		self.margin_params.append(p)
-		# 	else:
-		# 		print("Warning, requested marginalisation parameter " + p + " is not included in the analysis")
+		self.margin_params = []
+		for p in margin_params:
+			if p in self.fid_cosmo.keys() or p in self.fid_surv.keys():
+				self.margin_params.append(p)
+			else:
+				print("Warning, requested marginalisation parameter " + p + " is not included in the analysis")
+
+		if '100theta' in self.params:
+			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
+
+		self.lmax = 5000 # FIXME: this shouldn't be hardcoded 
+
+		# Compute fiducial CMB power spectra w/ fiducial cosmo + survey
+		print("...Computing fiducial CMB power spectra...")
+		self.cls = self.cosmo.cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
+		print("...done...")
+
+		# Compute derivatives
+		print("...Computing derivatives...")
+		self._dcldp = self._computeDerivatives()
+		print("...done...")
 
 		# Initialize Fisher classes for each experiment
 		print("...Initializing Fisher classes...")
 		for exp in self.exps.keys():
 			print('\t'+exp)
-			self.fisher[exp] = FisherCMB(self.fid_cosmo.copy(), self.exps[exp]['fid_surv'], copy.copy(self.params), obs=self.exps[exp]['obs'],  priors={}, steps=self.steps.copy(), verbose=verbose)
-			self.fisher[exp].mat 
+			# if exp != self.exps.keys()[0]:
+			# 	dcldp = self.fisher[self.exps.keys()[0]]._dcldp
+			# else:
+			# 	dcldp = None
+			self.fisher[exp] = FisherCMB(self.fid_cosmo.copy(),
+										 self.exps[exp]['fid_surv'].copy(), 
+										 copy.copy(self.params), 
+										 obs=copy.copy(self.exps[exp]['obs']),  
+										 priors={}, 
+										 inv_routine=self.inv_routine, 
+										 steps=self.steps.copy(), 
+										 verbose=verbose, 
+										 cls=copy.copy(self.cls), 
+										 dcldp=copy.copy(self._dcldp))
+			self.fisher[exp].mat()
 		print("...done...")
-
-		# Compute fiducial CMB power spectra w/ fiducial cosmo + survey
-		# print("...Computing fiducial CMB power spectra...")
-		# self.cls = self.cosmo.cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
-		# print("...done...")
-
-		# # Compute derivatives
-		# print("...Computing derivatives...")
-		# self._dcldp = self._computeDerivatives()
-		# print("...done...")
 
 		# Precomputed Fisher matrix
 		self._fullMat = None
@@ -727,7 +826,81 @@ class MultiFisherCMB(object):
 		self._mat = None
 		self._invmat = None
 
-	def Fij(self, param_i, param_j):
+		self._fullMat_scaled = None
+		self._fullInvMat_scaled = None
+		self._mat_scaled = None
+		self._invmat_scaled = None
+
+	def _computeObservables(self, par_cosmo):
+		if '100theta' in par_cosmo:
+			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
+
+	def _computeDerivatives(self):
+		""" 
+		Computes all the derivatives of the specified observable with
+		respect to the parameters and nuisance parameters in the analysis
+		"""
+		
+		# List the derivatives with respect to all the parameters
+		dcldp = []
+
+		# Computes all the derivatives with respect to the main parameters
+		for p in self.params + self.margin_params:
+			if False:
+				print("varying :" + p)
+
+			# Forward ~~~~~~~~~~~~~~~~~~~~~~
+			par_cosmo = self.fid_cosmo.copy()				
+
+			try:
+				step = self.steps[p]
+			except:
+				step = par_cosmo[p] * self.step		
+				if par_cosmo[p] == 0:
+					step = self.step
+
+			# par_cosmo[p] = par_cosmo[p] + step/2.
+			par_cosmo[p] = par_cosmo[p] + step
+			
+			if False:
+				print '\t %3.2e' %par_cosmo[p]
+
+			clsp = self._computeObservables(par_cosmo)
+
+			del par_cosmo
+
+			# Backward ~~~~~~~~~~~~~~~~~~~~~~
+			par_cosmo = self.fid_cosmo.copy()				
+
+			try:
+				step = self.steps[p]
+			except:
+				step = par_cosmo[p] * self.step	
+				if par_cosmo[p] == 0:
+					step = self.step
+			# par_cosmo[p] = par_cosmo[p] - step/2.
+			par_cosmo[p] = par_cosmo[p] - step
+			
+			if False:
+				print '\t %3.2e' %par_cosmo[p]
+
+
+			clsm = self._computeObservables(par_cosmo)
+
+			if p == 'As':
+				step = step * 1e9
+			if p == 'H0':
+				step = step / 100.
+
+			# dcldp.append( (clsp - clsm)/ (step))		
+			dcldp.append( (clsp - clsm)/ (2. * step))		
+
+			del par_cosmo, clsp, clsm
+
+		return dcldp
+
+	def Fij(self, param_i, param_j, scaled=True):
 		"""
 		Returns the matrix element of the Fisher matrix for parameters
 		param_i and param_j
@@ -735,10 +908,12 @@ class MultiFisherCMB(object):
 		i = self.params.index(param_i)
 		j = self.params.index(param_j)
 
-		# return self.mat[i, j]
-		return reduce(np.dot, [self.D_multi, self.mat, self.D_multi])[i, j]
+		if scaled:
+			return reduce(np.dot, [self.D, self.mat(scaled=True), self.D])[i, j]
+		else:
+			return self.mat()[i, j]
 
-	def invFij(self, param_i, param_j):
+	def invFij(self, param_i, param_j, scaled=True):
 		"""
 		Returns the matrix element of the inverse Fisher matrix for
 		parameters param_i and param_j
@@ -746,14 +921,16 @@ class MultiFisherCMB(object):
 		i = self.params.index(param_i)
 		j = self.params.index(param_j)
 
-		# return self.invmat[i, j]
-		return reduce(np.dot, [self.D_multi, self.invmat, self.D_multi])[i, j]
+		if scaled:
+			return reduce(np.dot, [self.D, self.invmat(scaled=True), self.D])[i, j]
+		else:
+			return self.invmat()[i, j]
 
 	def sigma_fix(self, param):
 		return 1.0 / np.sqrt(self.Fij(param, param))
 
-	def sigma_marg(self, param):
-		return np.sqrt(self.invFij(param, param))
+	def sigma_marg(self, param, scaled=True):
+		return np.sqrt(self.invFij(param, param, scaled=scaled))
 
 	def _marginalise(self, params):
 		""" 
@@ -771,19 +948,16 @@ class MultiFisherCMB(object):
 		"""
 		# Builds covariance matrix
 		marg_inv = np.zeros((len(params), len(params)))
-		D_ = np.diag(np.ones(len(params))) #np.zeros((len(params), len(params)))
+		D_ = np.diag(np.ones(len(params)))#np.zeros((len(params), len(params)))
 		for i in xrange(len(params)):
 			indi = self.params.index(params[i])
 			for j in xrange(len(params)):
 				indj = self.params.index(params[j])
-				marg_inv[i, j] = self.invmat[indi, indj]
-				D_[i, j] = self.D_multi[indi, indj]
+				marg_inv[i, j] = self.invmat(scaled=True)[indi, indj]
+				D_[i, j] = self.D[indi, indj]
 
-		marg_mat = reduce(np.dot, [D_, np.linalg.inv(marg_inv), D_])
+		marg_mat = reduce(np.dot, [D_, self.inv_routine(marg_inv), D_])
 		marg_inv = reduce(np.dot, [D_, marg_inv, D_])
-
-		# marg_mat = np.linalg.inv(marg_inv)
-		# marg_mat = reduce(np.dot, [vecs, np.linalg.inv(marg_inv), np.linalg.inv(vecs)])
 
 		return (marg_mat, marg_inv)
 
@@ -805,27 +979,52 @@ class MultiFisherCMB(object):
 		"""
 		return np.log(1.0 / abs(linalg.det(self.invmat)))
 
-	@property
-	def invmat(self):
+	# @property
+	def invmat(self, scaled=False):
 		"""
-		Returns the inverse fisher matrix
+		Returns the inverse Fisher matrix (= covariance)
 		"""
-		if self._invmat is None:
-			self._invmat = np.linalg.inv(self.mat)
-		return self._invmat
+		if scaled:
+			if self._invmat_scaled is None:
+				self._invmat_scaled = self.inv_routine(self.mat(scaled=True))
+			return self._invmat_scaled
+		else:
+			if self._invmat is None:
+				self._invmat = self.inv_routine(self.mat)
+			return self._invmat
 
-	@property
-	def mat(self):
+	# @staticmethod
+	def _rescaleFisherMatrix(self, F, simple=True, return_scaling_matrix=True):
+		if simple:
+			D = np.diag(1./np.sqrt(np.diag(F)))
+			F_scaled = reduce(np.dot, [D, F, D]) # rescaled Fisher matrix
+		else:
+			# see https://www.cs.ubc.ca/~inutard/files/cs517-project.pdf
+			T = np.tril(F)
+			d = np.zeros(T.shape[0])
+			for i in xrange(T.shape[0]):
+			    # print np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])
+			    d[i] = 1. / np.max( [np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])] )
+			D = np.diag(d)
+			F_scaled = reduce(np.dot, [D, F, D]) # rescaled Fisher matrix
+
+		if return_scaling_matrix:
+			return F_scaled, D
+		else:
+			return F_scaled
+
+	# @property
+	def mat(self, scaled=False, simple=True):
 		"""
-		Returns the fisher matrix marginalised over nuisance parameters
+		Returns the Fisher matrix marginalised over nuisance parameters
 		"""
-		# If the matrix is not already computed, compute it
-		if self._mat is None:
-			_fullMat = np.zeros((len(self.params),len(self.params)))
+		# If the Fisher matrix is not already computed, compute it
+		if (self._mat is None) or (self._mat_scaled is None):
+			self._fullMat = np.zeros((len(self.params),len(self.params)))
 			for exp in self.exps.keys():
 				print exp, '\n'
 				# print self.fisher[exp].D, '\n'
-				_fullMat += reduce(np.dot, [np.linalg.inv(self.fisher[exp].D), self.fisher[exp].mat, np.linalg.inv(self.fisher[exp].D)])
+				self._fullMat += self.fisher[exp].mat(scaled=False) #reduce(np.dot, [np.linalg.inv(self.fisher[exp].D), self.fisher[exp].mat, np.linalg.inv(self.fisher[exp].D)])
 
 			_Priors = np.zeros((len(self.params),len(self.params)))
 			for p in self.params:
@@ -838,40 +1037,24 @@ class MultiFisherCMB(object):
 			if (_Priors == 0).all():
 				print '\t...No priors included...'
 
-			print _fullMat
+			# print _fullMat
 
-			_fullMat += _Priors
+			self._fullMat += _Priors
 
-			print np.linalg.cond(_fullMat)
+			self._fullMat_scaled, self.D_fullMat = self._rescaleFisherMatrix(self._fullMat, simple=simple, return_scaling_matrix=True) # rescaled Full (w/ margin params) Fisher matrix  
+			self._fullInvMat_scaled = self.inv_routine(self._fullMat_scaled) # rescaled Full (w/ margin params) Covariance matrix 
+			self._fullInvMat = reduce(np.dot, [self.D_fullMat, self._fullInvMat_scaled, self.D_fullMat]) # Full (w/ margin params) Covariance matrix 
 
-			# invert Fisher matrix (get the covariance)
-			# see https://www.cs.ubc.ca/~inutard/files/cs517-project.pdf
-			T = np.tril(_fullMat)
-			d = np.zeros(T.shape[0])
-			for i in xrange(T.shape[0]):
-			#     print np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])
-			    d[i] = 1. / np.max( [np.sqrt(T[i,i]), np.dot(d[:i], T[i,:i])] )
-			self.D_multi = np.diag(d)
+			# Apply marginalisation over nuisance parameters 
+			self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
+			self._mat = self.inv_routine(self._invmat)
+			self._mat_scaled, self.D = self._rescaleFisherMatrix(self._mat, simple=simple, return_scaling_matrix=True) # rescaled marginalizes Fisher matrix  
+			self._invmat_scaled = self.inv_routine(self._mat_scaled)
 
-			# self.D_multi = np.diag(1./np.sqrt(np.diag(_fullMatMulti)))
-			# print self.D_multi
-
-			self._fullMat = reduce(np.dot, [self.D_multi, _fullMat, self.D_multi]) # rescaled Fisher matrix
-
-			print self._fullMat
-
-			print np.linalg.cond(self._fullMat)
-
-			self._fullInvMat = np.linalg.inv(self._fullMat) # rescaled Covariance matrix
-			
-			self._invmat = self._fullInvMat.copy()
-			self._mat = self._fullMat.copy()
-
-			# Apply marginalisation over nuisance parameters ! ! ! FIXME: USELESS
-			# self._invmat = self._fullInvMat[0:len(self.params),0:len(self.params)]
-			# self._mat = np.linalg.inv(self._invmat)
-
-		return self._mat
+		if scaled:
+			return self._mat_scaled
+		else:
+			return self._mat
 
 	def clearall(self):
 		print("...!!! erasing Fisher matrix & covariance !!!...")
@@ -896,11 +1079,13 @@ class MultiFisherCMB(object):
 				self.plot(self.params[j], self.params[i], nstd=nstd, ax=ax, labels=False, **kwargs)
 
 				if i == len(self.params) - 1:
-					ax.set_xlabel(labels[j])
+					# ax.set_xlabel(labels[j])
+					ax.set_xlabel(Labels[self.params[j]])
 				else:
 					ax.set_xticklabels([])
 				if j == 0:
-					ax.set_ylabel(labels[i])
+					# ax.set_ylabel(labels[i])
+					ax.set_ylabel(Labels[self.params[i]])
 				else:
 					ax.set_yticklabels([])
 
@@ -982,8 +1167,8 @@ class MultiFisherCMB(object):
 			#ax.set_ylim(pos[1] - sz, pos[1] + sz)
 
 		if labels is None:
-			ax.set_xlabel(p1)
-			ax.set_ylabel(p2)
+			ax.set_xlabel(Labels[p1])
+			ax.set_ylabel(Labels[p2])
 		elif labels is False:
 			pass
 		else:
@@ -1002,6 +1187,7 @@ class FisherPairwise(Fisher):
 	def __init__(self, fid_cosmo, 
 					   fid_surv, 
 					   params, 
+   					   margin_params=[],  
 					   priors={}, 
 					   steps={}, 
 					   cv=None, 
@@ -1009,17 +1195,20 @@ class FisherPairwise(Fisher):
 					   cm=None, 
 					   cov=None,
 					   planck_prior=False,
+					   cmb_prior=None,
+					   inv_routine=np.linalg.inv,
+					   dvdp=None,
 					   verbose=False):#, margin_params=[]):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
 		* fid_survey : dictionary => {M_min, fsky, sigma_v, zmin, zmax, Nz, rmin, rmax, Nr}
 		* params : list of Fisher analysis parameters
+		* cmb_prior: dictionary with CMB related stuff 
 		"""
-		super(FisherPairwise, self).__init__(fid_cosmo, fid_surv, params, priors, steps, verbose)
+		super(FisherPairwise, self).__init__(fid_cosmo, fid_surv, params, margin_params, priors, steps, inv_routine, verbose)
 
 		self.planck_prior = planck_prior
-
 		# self.step = 0.003
 		# self.fid_cosmo = fid_cosmo.copy()
 		# self.fid_surv = fid_surv.copy()
@@ -1043,7 +1232,7 @@ class FisherPairwise(Fisher):
 
 		# Check and store priors
 		for key, val in priors.iteritems():
-			if key in self.params:
+			if key in self.params or key in self.margin_params:
 				self.priors[key] = val
 
 		# Check and store steps
@@ -1053,15 +1242,6 @@ class FisherPairwise(Fisher):
 
 		# print self.fid_surv
 		# print self.params
-
-		# Checks that the marginalisation parameters are actually considered
-		# in the Fisher analysis
-		# self.margin_params = []
-		# for p in margin_params:
-		# 	if p in self.fid_surv.keys() or p in self.fid_cosmo.keys():
-		# 		self.margin_params.append(p)
-		# 	else:
-		# 		print("Warning, requested marginalisation parameter " + p + " is not included in the analysis")
 
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
@@ -1093,12 +1273,12 @@ class FisherPairwise(Fisher):
 			self.cov = cov
 			print("...covariance matrix loaded...")
 
-		self.inv_cov = {i : np.linalg.inv(self.cov[i]) for i in xrange(self.Nz)}
+		self.inv_cov = {i : inv_routine(self.cov[i]) for i in xrange(self.Nz)}
 		# self.cov = linalg.block_diag(*cov.values())
 		# self.inv_cov = linalg.pinv2(self.cov)
 
 		if self.planck_prior:
-			print("...Calculating Planck priors...")
+			print("...Calculating CMB priors...")
 			self.params_cmb = copy.copy(self.params)
 			bad = []
 			for p in self.params:
@@ -1113,19 +1293,36 @@ class FisherPairwise(Fisher):
 				print self.params_cmb
 
 			self.fishycmb = FisherCMB(fid_cosmo=self.fid_cosmo.copy(),\
-			                     fid_surv={'fsky':.5, 'DeltaT':[28.6,45.], 'DeltaP':[40.,64.],'fwhm':[5.,7.0], 'lminT':30, 'lmaxT':2500,'lminP':30, 'lmaxP':2500},\
+			                     fid_surv={'fsky':.5, 
+			                     		   'DeltaT':[28.6,45.], 
+			                     		   'DeltaP':[40.,64.],
+			                     		   'fwhm':[5.,7.0], 
+			                     		   'lminT':30, 
+			                     		   'lmaxT':2500,
+			                     		   'lminP':30, 
+			                     		   'lmaxP':2500},\
 			                     steps=self.steps.copy(), \
-			                     params=copy.copy(self.params_cmb)) 
+			                     params=copy.copy(self.params_cmb))#,\
+			                     # margin_params=) 
 
-			self.fcmb = reduce(np.dot, [np.linalg.inv(self.fishycmb.D), self.fishycmb.mat, np.linalg.inv(self.fishycmb.D)]) 
-			print("...done...")
+			self.fcmb = self.fishycmb.mat()#reduce(np.dot, [np.linalg.inv(self.fishycmb.D), self.fishycmb.mat, np.linalg.inv(self.fishycmb.D)]) 
+			print("...done...") # TODO: make it general!
+		else:
+			self.fcmb = 0.
+
+		if cmb_prior:
+			self.fcmb = cmb_prior
 		else:
 			self.fcmb = 0.
 
 		# Compute derivatives
-		print("...Computing derivatives...")
-		self._dvdp = self._computeDerivatives()
-		print("...done...")
+		if dvdp is not None:
+			self._dvdp = dvdp
+			print("...derivatives loaded...")
+		else:
+			print("...Computing derivatives...")
+			self._dvdp = self._computeDerivatives()
+			print("...done...")
 
 		# Precomputed Fisher matrix
 		self._fullMat = None
@@ -1150,7 +1347,7 @@ class FisherPairwise(Fisher):
 			self._dvdp = self._computeDerivatives()
 			print("...done...")
 
-		nparams = len(self.params)
+		nparams = len(self._dvdp[0])#len(self.params)
 		
 		# print self._dvdp
 		# print self.inv_cov[0].shape
@@ -1158,7 +1355,7 @@ class FisherPairwise(Fisher):
 		_fullMat = np.zeros((nparams,nparams))
 
 		print("...Computing Full Fisher matrix...")
-		# Computes the fisher Matrix
+		# Computes the fisher Matrix ~~~~~~~~~~~~~
 		for i in xrange(nparams):
 			for j in xrange(i+1):
 				tmp = 0
@@ -1168,9 +1365,11 @@ class FisherPairwise(Fisher):
 				_fullMat[j,i] = _fullMat[i,j]
 				del tmp
 
+		# Priors ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		_Priors = np.zeros((nparams,nparams))
-		for p in self.params:
-			i = self.params.index(p)
+		allparams = self.params + self.margin_params
+		for p in allparams:
+			i = allparams.index(p)
 			try:
 				_Priors[i,i] = 1./self.priors[p]**2.
 				print '---Including prior for',p,str(self.priors[p])
@@ -1179,20 +1378,40 @@ class FisherPairwise(Fisher):
 		if (_Priors == 0).all():
 			print '---No prior included'
 
-		#print "prior matrix ",FisherPriors
-		#print "fisher before adding prior",self.totFisher
-
 		_fullMat += _Priors
 
-		if self.planck_prior:
-			print '---Including Planck priors'
-			for i in xrange(nparams):
+		# if self.planck_prior:
+		# 	print '---Including Planck priors'
+		# 	for i in xrange(nparams):
+		# 		for j in xrange(i+1):
+		# 			par_i = self.params[i]
+		# 			par_j = self.params[j]  
+		# 			if (par_i in self.params_cmb) and (par_j in self.params_cmb):
+		# 				print par_i, par_j
+		# 				_fullMat[i,j] += self.fcmb[self.params_cmb.index(par_i),self.params_cmb.index(par_j)] 
+		# 				_fullMat[j,i] = _fullMat[i,j]
+
+		# if self.fcmb != 0.:
+		# 	print '---Including CMB priors'
+		# 	for i in xrange(nparams):
+		# 		for j in xrange(i+1):
+		# 			par_i = self.params[i]
+		# 			par_j = self.params[j]  
+		# 			if (par_i in self.fcmb.params) and (par_j in self.fcmb.params):
+		# 				# print par_i, par_j
+		# 				_fullMat[i,j] += self.fcmb.mat(scaled=False)[self.fcmb.params.index(par_i),self.fcmb.params.index(par_j)] 
+		# 				_fullMat[j,i] = _fullMat[i,j]
+
+		# CMB priors ~~~~~~~~~~~~~~~~~~~~~~~~~~
+		if self.fcmb != 0.: 
+			print '---Including CMB priors'
+			for i in xrange(len(allparams)):
 				for j in xrange(i+1):
-					par_i = self.params[i]
-					par_j = self.params[j]  
-					if (par_i in self.params_cmb) and (par_j in self.params_cmb):
-						print par_i, par_j
-						_fullMat[i,j] += self.fcmb[self.params_cmb.index(par_i),self.params_cmb.index(par_j)] 
+					par_i = allparams[i]
+					par_j = allparams[j]  
+					if (par_i in self.fcmb.params) and (par_j in self.fcmb.params):
+						# print par_i, par_j
+						_fullMat[i,j] += self.fcmb.mat(scaled=False)[self.fcmb.params.index(par_i),self.fcmb.params.index(par_j)] 
 						_fullMat[j,i] = _fullMat[i,j]
 
 		return _fullMat 
@@ -1209,7 +1428,7 @@ class FisherPairwise(Fisher):
 			dvdp[idz] = []
 
 		# Computes all the derivatives with respect to the main parameters
-		for p in self.params:
+		for p in self.params + self.margin_params:
 			if self.verbose:
 				print("varying :" + p)
 
@@ -1287,32 +1506,3 @@ class FisherPairwise(Fisher):
 			del par_sur, par_cosmo, Vp, Vm
 
 		return dvdp
-
-	# def sub_matrix(self, subparams):
-	# 	"""
-	# 	Extracts a submatrix from the current fisher matrix using the
-	# 	parameters in params
-	# 	"""
-	# 	params = []
-	# 	for p in subparams:
-	# 		# Checks that the parameter exists in the orignal matrix
-	# 		if p in self.params:
-	# 			params.append(p)
-	# 		else:
-	# 			print("Warning, parameter not present in original \
-	# 				Fisher matrix, left ignored :" + p)
-	# 	newFisher = FisherPairwise(self.fid_cosmo, self.fid_surv, params)
-
-	# 	# Fill in the fisher matrix from the precomputed matrix
-	# 	newFisher._mat = np.zeros((len(params), len(params)))
-
-	# 	for i in xrange(len(params)):
-	# 		indi = self.params.index(params[i])
-	# 		for j in xrange(len(params)):
-	# 			indj = self.params.index(params[j])
-	# 			newFisher._mat[i, j] = self.mat[indi, indj]
-
-	# 	newFisher._invmat = np.linalg.inv(newFisher._mat)
-
-	# 	return newFisher
-
