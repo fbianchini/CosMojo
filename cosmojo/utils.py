@@ -7,11 +7,48 @@ k_B = const.k_B.value
 jansky   = 1.0e-23            # erg/s/cm/cm/Hz
 
 def btheta (fwhm_arcmin, theta):
+	""" 
+	Returns the real-space symmetric Gaussian beam.
+
+	Parameters
+	----------
+	fwhm_arcmin : float
+		Beam full-width-at-half-maximum (fwhm) in arcmin.
+
+	theta : float
+		Angle.
+
+	Returns
+	-------
+	bl : array
+		Gaussian beam function
+
+	"""
 	sigmab = fwhm_arcmin/(np.sqrt(8.*np.log(2.)))
 	# thetas = np.linspace(0, theta, 1000)
 	return np.exp(-theta**2/(2.*sigmab**2))/(2.*np.pi*sigmab**2)
 
 def btheta2D (fwhm_arcmin, reso=0.2, theta_max=5):
+	""" 
+	Returns the real-space 2D symmetric Gaussian beam.
+
+	Parameters
+	----------
+	fwhm_arcmin : float
+		Beam full-width-at-half-maximum (fwhm) in arcmin.
+
+	reso : float
+		Resolution of the 2d array [arcmin/pix]
+	
+	theta_max : float
+		Angle.
+
+	Returns
+	-------
+	bl : 2d array
+		Gaussian beam function
+
+	"""
 	sigmab = fwhm_arcmin/(np.sqrt(8.*np.log(2.)))
 	theta_x,theta_y = np.meshgrid(np.arange(-theta_max,theta_max+reso,reso), np.arange(-theta_max,theta_max+reso,reso)) 
 	thetas = np.sqrt(theta_x**2+theta_y**2) # arcmin
@@ -232,19 +269,31 @@ def W_Delta(k, Rmin, Rmax):
 def V_bin(r, dr):
 	return np.pi/3. * (dr * (dr**2 + 12*r**2))
 
-def cib_cls (ell, nu=150e9, tcmb=2.725):
-	nu0 = 150. * 1.e9 # Hz
-	ell0 = 3000.
-	ap = 7.0
-	ac = 5.7
-	beta = 2.1
-	n = 1.2
-	Td = 9.7 # K
+def GetLxLy(nx, dx, ny=None, dy=None, shift=False):
+    """ 
+    Returns two grids with the (lx, ly) pair associated with each Fourier mode in the map. 
+    If shift=True, \ell = 0 is centered in the grid
+    ~ Note: already multiplied by 2\pi 
+    """
+    if ny is None: ny = nx
+    if dy is None: dy = dx
+    
+    dx *= arcmin2rad
+    dy *= arcmin2rad
+    
+    if shift:
+        return np.meshgrid( np.fft.fftshift(np.fft.fftfreq(nx, dx))*2.*np.pi, np.fft.fftshift(np.fft.fftfreq(ny, dy))*2.*np.pi )
+    else:
+        return np.meshgrid( np.fft.fftfreq(nx, dx)*2.*np.pi, np.fft.fftfreq(ny, dy)*2.*np.pi )
 
-	mu2 = (nu**beta * B_nu(nu/1e9,Td)/dB_nu_dT(nu/1e9,tcmb))**2
-	mu02 = (nu0**beta * B_nu(nu0/1e9,Td)/dB_nu_dT(nu0/1e9,tcmb))**2
 
-	clcibP = (2.*np.pi/ell**2)*ap*(ell/ell0)**2*mu2/mu02
-	clcibC = (2.*np.pi/ell**2)*ac*(ell/ell0)**(2-n)*mu2/mu02
+def GetL(nx, dx, ny=None, dy=None, shift=False):
+    """ 
+    Returns a grid with the wavenumber l = \sqrt(lx**2 + ly**2) for each Fourier mode in the map. 
+    If shift=True, \ell = 0 is centered in the grid
+    """
+    lx, ly = GetLxLy(nx, dx, ny=ny, dy=dy, shift=shift)
+    return np.sqrt(lx**2 + ly**2)
 
-	return clcibP, clcibC
+
+
