@@ -1,12 +1,14 @@
 import numpy as np
 from scipy import interpolate
 from scipy import integrate
-from utils import btheta2D
+from utils import btheta2D, Interpolate2D
 from astropy.convolution import convolve
 import astropy.constants as const
 import astropy.units as u
 from photutils import CircularAperture, CircularAnnulus
 from photutils import aperture_photometry
+import matplotlib.pyplot as plt
+
 
 def rho_fit_Battaglia16(x, M, z, x_c=0.5, gamma=-0.2, sim='AGN'): # unitless
 	"""
@@ -85,7 +87,7 @@ class ClusterOpticalDepth():
 		self.mass_def = mass_def
 		# self.concentration = concentration
 
-	def GetTauProfile(self, M, z, x_c=0.5, gamma=-0.2, reso=0.2, theta_max=10, chi=1., fwhm_arcmin=0., profile='battaglia'):
+	def GetTauProfile(self, M, z, x_c=0.5, gamma=-0.2, reso=0.2, theta_max=10, chi=1., fwhm_arcmin=0., profile='battaglia', lowpass=False):
 		"""
 		Returns the 2D profile of the optical depth for a cluster of mass M (M_sun) at redshift z.
 		"""
@@ -95,6 +97,7 @@ class ClusterOpticalDepth():
 		d_A = self.cosmo.d_A(z) # [Mpc]
 		rho_c_z = self.cosmo.rho_c(z) # [kg/m^3]
 		f_gas = self.cosmo.omegab/self.cosmo.omegam # we assume f_gas ~ f_baryon
+		BAD_TWEAK = 1.4 # Battaglia profile seems lower in amplitude w.r.t. the plots in the paper
 		# print f_gas
 
 		R = np.radians(theta/60.) * d_A # [Mpc]
@@ -111,7 +114,7 @@ class ClusterOpticalDepth():
 					return 2. * rho_fit_Battaglia16(r/r_v, M, z, x_c=x_c, gamma=gamma) * ( r / np.sqrt(r**2. - R[ii]**2.) )
 				rho_fit[ii] =  integrate.quad(integrand, R[ii], np.inf, epsabs=self.epsabs, epsrel=self.epsrel)[0]
 
-			norm_for_int = rho_c_z
+			norm_for_int = BAD_TWEAK * rho_c_z
 			# tau_theta = f_gas * rho_fit * u.Mpc.to('m') * rho_c_z * const.sigma_T.value * chi / (1.14*const.m_p.value)
 
 		elif profile == 'NFW' or profile == 'nfw':
@@ -168,13 +171,20 @@ class ClusterOpticalDepth():
 		if fwhm_arcmin != 0.:
 			tau_theta = convolve(tau_theta, btheta2D(fwhm_arcmin, reso=reso, theta_max=theta_max), normalize_kernel=True)
 
+		# Smoothly filter out scales below the beam
+		if lowpass:
+			l = np.arange(0,5e4)
+			f_l =  np.exp(-(l/(np.pi/np.radians(fwhm_arcmin/60.)))**4)
+			filt = Interpolate2D(tau_theta.shape[1], reso, l, f_l)
+			tau_theta = np.fft.ifft2(np.fft.fft2(tau_theta)*filt).real
+			# plt.imshow(np.abs(np.fft.fftshift(np.fft.fft2(tau_theta))))
 		return tau_theta
 
-	def GetApertureTau(self, M, z, theta_R, x_c=0.5, gamma=-0.2, reso=0.2, theta_max=10., chi=1., fwhm_arcmin=0., profile='Battaglia'):
+	def GetApertureTau(self, M, z, theta_R, x_c=0.5, gamma=-0.2, reso=0.2, theta_max=10., chi=1., fwhm_arcmin=0., profile='Battaglia', lowpass=False):
 		# if theta_R > theta_max:
 		# 	theta_max = theta_R * 2.
 
-		tau_profile = self.GetTauProfile(M, z, x_c=x_c, gamma=gamma, reso=reso, theta_max=theta_max, chi=chi, fwhm_arcmin=fwhm_arcmin, profile=profile)
+		tau_profile = self.GetTauProfile(M, z, x_c=x_c, gamma=gamma, reso=reso, theta_max=theta_max, chi=chi, fwhm_arcmin=fwhm_arcmin, profile=profile, lowpass=lowpass)
 
 		theta_R_pix = theta_R/reso
 

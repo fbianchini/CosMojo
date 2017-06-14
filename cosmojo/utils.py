@@ -4,7 +4,8 @@ import astropy.constants as const
 c_light = const.c.value
 h_planck = const.h.value
 k_B = const.k_B.value
-jansky   = 1.0e-23            # erg/s/cm/cm/Hz
+jansky = 1.0e-23            # erg/s/cm/cm/Hz
+arcmin2rad = np.pi / 180. / 60. 
 
 def btheta (fwhm_arcmin, theta):
 	""" 
@@ -269,10 +270,29 @@ def W_Delta(k, Rmin, Rmax):
 def V_bin(r, dr):
 	return np.pi/3. * (dr * (dr**2 + 12*r**2))
 
+def Diameter2Theta(D, nu):
+	""" 
+	Returns the beam [arcmin] corresponding to a given telescope diameter D [m] operating at a frequency nu [GHz].
+
+	Parameters
+	----------
+	D : float
+		Diameter of the telescope in meters.
+
+	nu : int
+		Frequency in GHz.
+
+	Returns
+	-------
+	theta : array
+		Beam in arcmin
+	"""
+	return np.degrees(1.22 * (c_light/(nu*1e9))/D) * 60.
+
 def GetLxLy(nx, dx, ny=None, dy=None, shift=False):
     """ 
     Returns two grids with the (lx, ly) pair associated with each Fourier mode in the map. 
-    If shift=True, \ell = 0 is centered in the grid
+    If shift=True , \ell = 0 is centered in the grid
     ~ Note: already multiplied by 2\pi 
     """
     if ny is None: ny = nx
@@ -286,7 +306,6 @@ def GetLxLy(nx, dx, ny=None, dy=None, shift=False):
     else:
         return np.meshgrid( np.fft.fftfreq(nx, dx)*2.*np.pi, np.fft.fftfreq(ny, dy)*2.*np.pi )
 
-
 def GetL(nx, dx, ny=None, dy=None, shift=False):
     """ 
     Returns a grid with the wavenumber l = \sqrt(lx**2 + ly**2) for each Fourier mode in the map. 
@@ -295,5 +314,17 @@ def GetL(nx, dx, ny=None, dy=None, shift=False):
     lx, ly = GetLxLy(nx, dx, ny=ny, dy=dy, shift=shift)
     return np.sqrt(lx**2 + ly**2)
 
+def Interpolate2D(nx, dx, l, cl, dy=None, ny=None, shift=False):
+    """ 
+    Returns a function cl interpolated on the 2D L plane.
+    If shift=True (default), \ell = 0 is centered in the grid
+    """
+    if ny is None: ny = nx
+    if dy is None: dy = dx
+ 
+    L = GetL(nx, dx, ny=ny, dy=dy, shift=shift)
+    CL = np.interp(L, l, cl)
+
+    return CL
 
 
