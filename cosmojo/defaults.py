@@ -66,7 +66,8 @@ default_pw_survey_dict = {
     'Nz'     : 1,    # # of z-bins
     'rmin'   : 30.,  # Minimum separation scale [Mpc]
     'rmax'   : 250., # Maximum separation scale [Mpc]
-    'Nr'     : 80    # of r-bins
+    'Nr'     : 80,   # of r-bins
+    'b_tau'  : None  # optical depth bias
     }
 
 default_cmb_survey_dict = {
@@ -84,6 +85,10 @@ default_cmb_survey_dict = {
     'alpha'  : 0.,
     }
 
+default_bao_survey_dict = {
+    'z': [.15, .25, .35, .45, .55, .65, .75, .85, .95, 1.05, 1.15, 1.25, 1.35, 1.45, 1.55, 1.65, 1.75, 1.85],
+    'sigma':[4.1,1.7,.88,.55,.38,.28,.21,.18,.18,.17,.16,.14,.15,.16,.19,.28,.41,.52]
+}
 
 default_limits = {
     "limber_zmin"   : 0.,   ### 

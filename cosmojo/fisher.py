@@ -347,6 +347,254 @@ class Fisher(object):
 		plt.draw()
 		return ellip
 
+class FisherBAO(Fisher):
+
+	def __init__(self, fid_cosmo, 
+					   fid_surv, 
+					   params, 
+					   obs=['TT','EE','TE'],  
+					   priors={}, 
+					   steps={},
+					   margin_params=[],
+					   inv_routine=np.linalg.inv,
+					   verbose=False):
+		"""
+		Constructor
+		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
+		* fid_survey : dictionary => {[z-range], }
+		* params : list of Fisher analysis parameters
+		"""
+
+		super(FisherBAO, self).__init__(fid_cosmo, fid_surv, params, margin_params, priors, steps, inv_routine, verbose)
+
+		# self.fid_cosmo = fid_cosmo.copy()
+		# self.fid_surv = fid_surv.copy()
+		# self.params = []
+		# self.priors = {}
+		# self.steps  = {}
+		self.obs = obs
+
+		# Few checks on survey params -> initialize to default value if not present
+		for key, val in default_bao_survey_dict.iteritems():
+			self.fid_surv.setdefault(key,val)
+			setattr(self, key, self.fid_surv[key]) 
+			# print key, self.fid_surv[key]
+
+		# Check that the parameters provided are present in survey or cosmo
+		for p in params:
+			# First find the fiducial value for the parameter in question
+			if p in self.fid_cosmo.keys():# or p in self.fid_surv.keys()
+				self.params.append(p)
+			else:
+				print("Warning, unknown parameter in derivative :" + p)
+
+		print self.params
+
+		# Check and store priors
+		for key, val in priors.iteritems():
+			if key in self.params:
+				self.priors[key] = val
+
+		# Check and store steps
+		for key, val in steps.iteritems():
+			if key in self.params:
+				self.steps[key] = val
+
+		if self.verbose:
+			for key, val in self.fid_surv.iteritems():
+				print key, val
+
+		# print ''
+		# print self.fid_surv
+		# print ''
+
+		if '100theta' in self.params:
+			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
+
+		# Create a Cosmo object with a copy of the fiducial cosmology
+		self.cosmo = Cosmo(params=fid_cosmo)
+
+		# Compute derivatives
+		if dfdp is not None:
+			self._dfdp = copy.copy(dfdp)
+			print("...derivatives loaded...")
+			# if dcldp.shape[0] == len(params+margin_params):
+			# 	self._dcldp = dcldp
+			# else:
+			# 	print("...Computing derivatives...")
+			# 	self._dcldp = self._computeDerivatives()
+			# 	print("...done...")
+		else:
+			print("...Computing derivatives...")
+			self._dfdp = self._computeDerivatives()
+			print("...done...")
+
+
+	def _computeCovariance(self, l):
+
+		return Cov
+
+	def _computeObservables(self, par_cosmo):
+		if '100theta' in par_cosmo:
+			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+
+		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
+
+	def _computeFullMatrix(self):
+		if self._dfdp is None:
+			print("...Computing derivatives...")
+			self._dfdp = self._computeDerivatives()
+			print("...done...")
+
+		nparams = len(self._dfdp)#len(self.params)
+
+		_fullMat = np.zeros((nparams,nparams))
+
+		print("...Computing Full Fisher matrix...")
+		# Computes the fisher Matrix
+		for i in xrange(nparams):
+			for j in xrange(i+1):
+				# print i,j 
+				tmp = 0
+				for l in self.lrange:
+					cov = self._computeCovariance(l)
+					
+					inv_cov = self.inv_routine(cov)
+					df_i = np.array([self._dfdp[i][l,0], self._dfdp[i][l,1], self._dfdp[i][l,3]])
+					df_j = np.array([self._dfdp[j][l,0], self._dfdp[j][l,1], self._dfdp[j][l,3]])
+					tmp += np.nan_to_num(np.dot(df_i, np.dot(inv_cov, df_j)))	
+
+				_fullMat[i,j] = tmp
+				_fullMat[j,i] = tmp#_fullMat[i,j]
+				del tmp
+
+		print("...done...")
+
+		# _Priors = np.zeros((nparams,nparams))
+		# for p in self.params:
+		# 	i = self.params.index(p)
+		# 	try:
+		# 		_Priors[i,i] = 1./self.priors[p]**2.
+		# 		print '\t...Including prior for', p, str(self.priors[p])
+		# 	except KeyError: 
+		# 		pass
+		# if (_Priors == 0).all():
+		# 	print '\t...No priors included...'
+
+		# Priors ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		_Priors = np.zeros((nparams,nparams))
+		allparams = self.params + self.margin_params
+		for p in allparams:
+			i = allparams.index(p)
+			try:
+				_Priors[i,i] = 1./self.priors[p]**2.
+				print '---Including prior for',p,str(self.priors[p])
+			except KeyError:
+				pass
+		if (_Priors == 0).all():
+			print '---No prior included'
+
+		_fullMat += _Priors
+
+		#print "prior matrix ",FisherPriors
+		#print "fisher before adding prior",self.totFisher
+
+		_fullMat += _Priors
+
+		return _fullMat
+
+	def _computeDerivatives(self):
+		""" 
+		Computes all the derivatives of the specified observable with
+		respect to the parameters and nuisance parameters in the analysis
+		"""
+		
+		# List the derivatives with respect to all the parameters
+		dcldp = []
+
+		# Computes all the derivatives with respect to the main parameters
+		for p in self.params + self.margin_params:
+			if self.verbose:
+				print("varying :" + p)
+
+			# Forward ~~~~~~~~~~~~~~~~~~~~~~
+			par_cosmo = self.fid_cosmo.copy()				
+
+			try:
+				step = self.steps[p]
+			except:
+				step = par_cosmo[p] * self.step		
+				if par_cosmo[p] == 0:
+					step = self.step
+
+			# par_cosmo[p] = par_cosmo[p] + step/2.
+			par_cosmo[p] = par_cosmo[p] + step
+			
+			if self.verbose:
+				print '\t %3.2e' %par_cosmo[p]
+
+			clsp = self._computeObservables(par_cosmo)
+
+			del par_cosmo
+
+			# Backward ~~~~~~~~~~~~~~~~~~~~~~
+			par_cosmo = self.fid_cosmo.copy()				
+
+			try:
+				step = self.steps[p]
+			except:
+				step = par_cosmo[p] * self.step	
+				if par_cosmo[p] == 0:
+					step = self.step
+			# par_cosmo[p] = par_cosmo[p] - step/2.
+			par_cosmo[p] = par_cosmo[p] - step
+			
+			if self.verbose:
+				print '\t %3.2e' %par_cosmo[p]
+
+
+			clsm = self._computeObservables(par_cosmo)
+
+			if p == 'As':
+				step = step * 1e9
+			if p == 'H0':
+				step = step / 100.
+
+			# dcldp.append( (clsp - clsm)/ (step))		
+			dcldp.append( (clsp - clsm)/ (2. * step))		
+
+			del par_cosmo, clsp, clsm
+
+		return dcldp
+
+	def sub_matrix(self, subparams):
+		"""
+		Extracts a submatrix from the current fisher matrix using the
+		parameters in params
+		"""
+		params = []
+		for p in subparams:
+			# Checks that the parameter exists in the orignal matrix
+			if p in self.params:
+				params.append(p)
+			else:
+				print("Warning, parameter not present in original \
+					Fisher matrix, left ignored :" + p)
+		newFisher = FisherCMB(self.fid_cosmo, self.fid_surv, params)
+
+		# Fill in the fisher matrix from the precomputed matrix
+		newFisher._mat = np.zeros((len(params), len(params)))
+
+		for i in xrange(len(params)):
+			indi = self.params.index(params[i])
+			for j in xrange(len(params)):
+				indj = self.params.index(params[j])
+				newFisher._mat[i, j] = self.mat[indi, indj]
+
+		newFisher._invmat = self.inv_routine(newFisher._mat)
+
+		return newFisher
+
 class FisherCMB(Fisher):
 
 	def __init__(self, fid_cosmo, 
@@ -437,10 +685,12 @@ class FisherCMB(Fisher):
 			# Assumes nlkk_ starts from l = 0
 			if path_file_NLKK is None:
 				l_, nlkk_ = np.loadtxt('../data/nlkk_cmb_s4_1muK_2fwhm_lmax2500.dat', unpack=True)
+				nlkk_ = np.interp(np.arange(self.lmax+1), l_, nlkk_, left=0., right=0.)
 				# l_, nlkk_ = np.loadtxt('../data/nlkk_planck2015.dat', unpack=True)
 			else:
 				l_, nlkk_ = np.loadtxt(path_file_NLKK, unpack=True)
-			self.NlKK[:nlkk_.size] = nlkk_
+			# self.NlKK[:nlkk_.size] = nlkk_
+			self.NlKK = nlkk_
 			self.NlKK[:self.lminK] = 1.e40
 			self.NlKK[self.lmaxK+1:] = 1.e40
 
@@ -736,7 +986,8 @@ class MultiFisherCMB(object):
 					   priors={}, 
 					   steps={},
 					   inv_routine=np.linalg.inv,
-					   verbose=False):#, margin_params=[]):
+					   verbose=False,
+					   dcldp=None):
 		"""
 		Constructor
 		* fid_cosmo : dictionary (can be composed by more params than the one to forecast/marginalize)
@@ -795,9 +1046,20 @@ class MultiFisherCMB(object):
 		print("...done...")
 
 		# Compute derivatives
-		print("...Computing derivatives...")
-		self._dcldp = self._computeDerivatives()
-		print("...done...")
+		# Compute derivatives
+		if dcldp is not None:
+			self._dcldp = copy.copy(dcldp)
+			print("...derivatives loaded...")
+			# if dcldp.shape[0] == len(params+margin_params):
+			# 	self._dcldp = dcldp
+			# else:
+			# 	print("...Computing derivatives...")
+			# 	self._dcldp = self._computeDerivatives()
+			# 	print("...done...")
+		else:
+			print("...Computing derivatives...")
+			self._dcldp = self._computeDerivatives()
+			print("...done...")
 
 		# Initialize Fisher classes for each experiment
 		print("...Initializing Fisher classes...")
@@ -807,6 +1069,7 @@ class MultiFisherCMB(object):
 			# 	dcldp = self.fisher[self.exps.keys()[0]]._dcldp
 			# else:
 			# 	dcldp = None
+			print self.exps[exp]['fid_surv']['fwhm']
 			self.fisher[exp] = FisherCMB(self.fid_cosmo.copy(),
 										 self.exps[exp]['fid_surv'].copy(), 
 										 copy.copy(self.params), 
@@ -816,7 +1079,8 @@ class MultiFisherCMB(object):
 										 steps=self.steps.copy(), 
 										 verbose=verbose, 
 										 cls=copy.copy(self.cls), 
-										 dcldp=copy.copy(self._dcldp))
+										 dcldp=copy.copy(self._dcldp),
+										 path_file_NLKK=self.exps[exp]['path_file_NLKK'])
 			self.fisher[exp].mat()
 		print("...done...")
 
@@ -1222,6 +1486,10 @@ class FisherPairwise(Fisher):
 			setattr(self, key, self.fid_surv[key]) 
 			# print key, self.fid_surv[key]
 
+		if self.fid_surv['b_tau'] is None:
+			for i in xrange(self.fid_surv['Nz']):
+				self.fid_surv['b_tau_'+str(i)] = 1.
+
 		# Check that the parameters provided are present in survey or cosmo
 		for p in params:
 			# First find the fiducial value for the parameter in question
@@ -1233,15 +1501,31 @@ class FisherPairwise(Fisher):
 		# Check and store priors
 		for key, val in priors.iteritems():
 			if key in self.params or key in self.margin_params:
-				self.priors[key] = val
+				if key != 'b_tau':
+					self.priors[key] = val
+				else:
+					for i in xrange(self.fid_surv['Nz']):
+						self.priors['b_tau_'+str(i)] = val
 
 		# Check and store steps
 		for key, val in steps.iteritems():
-			if key in self.params:
-				self.steps[key] = val
+			if key in self.params or key in self.margin_params:
+				if key != 'b_tau':
+					self.steps[key] = val
+				else:
+					for i in xrange(self.fid_surv['Nz']):
+						self.steps['b_tau_'+str(i)] = val
+
+		if 'b_tau' in self.margin_params:
+			del self.margin_params[self.margin_params.index('b_tau')]
+			for i in xrange(self.fid_surv['Nz']):
+				self.margin_params.append('b_tau_'+str(i))
 
 		# print self.fid_surv
 		# print self.params
+
+		if '100theta' in self.params:
+			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
@@ -1263,7 +1547,12 @@ class FisherPairwise(Fisher):
 			else:
 				self.cov_gauss_shot = cs
 			if cm is None:
-				self.cov_meas = self.pw.Cov_meas(self.sigma_v) # FIXME: make sigma_v dependent on other params such as tau
+				# self.cov_meas = self.pw.Cov_meas(self.sigma_v) # FIXME: make sigma_v dependent on other params such as tau
+				self.cov_meas = {}
+				for idz in xrange(self.pw.Nz):
+					self.cov_meas[idz] = self.pw.Cov_meas(self.pw.GetSigmaV(self.fid_surv['noise_uK_arcmin'], self.fid_surv['fwhm_arcmin'], self.pw.zmean[idz], theta_R=self.fid_surv['fwhm_arcmin'], fg=None))[idz]
+
+				# self.cov_meas = self.pw.Cov_meas(self.pw.GetSigmaV(self.noise_uK_arcmin, self.fwhm_arcmin, z, theta_R=self.fwhm_arcmin))[idz] # FIXME: make sigma_v dependent on other params such as tau
 			else:
 				self.cov_meas = cm
 
@@ -1277,6 +1566,7 @@ class FisherPairwise(Fisher):
 		# self.cov = linalg.block_diag(*cov.values())
 		# self.inv_cov = linalg.pinv2(self.cov)
 
+		# Deprecated !
 		if self.planck_prior:
 			print("...Calculating CMB priors...")
 			self.params_cmb = copy.copy(self.params)
@@ -1310,6 +1600,7 @@ class FisherPairwise(Fisher):
 		else:
 			self.fcmb = 0.
 
+		# CMB priors ~~~~~~~~~~~~~~~~~~~~~~~~~~
 		if cmb_prior:
 			self.fcmb = cmb_prior
 		else:
@@ -1331,15 +1622,23 @@ class FisherPairwise(Fisher):
 		self._invmat = None
 
 	def _computeObservables(self, par_cosmo, par_sur):
+		if '100theta' in par_cosmo:
+			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+
 		if par_cosmo == self.fid_cosmo:
 			_cosmo = copy.copy(self.cosmo)
 		else:
 			_cosmo = Cosmo(params=par_cosmo)
 
 		_pw = BinPairwise(_cosmo, par_sur['zmin'], par_sur['zmax'], par_sur['Nz'], par_sur['rmin'], \
-						  par_sur['rmax'],  par_sur['Nr'], fsky=par_sur['fsky'], M_min=par_sur['M_min'])
+						  par_sur['rmax'], par_sur['Nr'], fsky=par_sur['fsky'], M_min=par_sur['M_min'])
 
-		return _pw.V_Delta
+		result = _pw.V_Delta.copy()
+
+		for idz in xrange(self.fid_surv['Nz']):
+			result[idz] = par_sur['b_tau_'+str(idz)] * result[idz]
+
+		return result
 
 	def _computeFullMatrix(self):
 		if self._dvdp is None:

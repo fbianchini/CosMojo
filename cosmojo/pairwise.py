@@ -2,7 +2,7 @@ import numpy as np
 from scipy import interpolate, integrate, linalg, special, optimize
 from astropy import constants as const
 from defaults import *
-from utils import V_bin, W_Delta, nl_cmb, bl, cib_cls
+from utils import V_bin, W_Delta, nl_cmb, bl
 from mass_func import MassFunction
 from corr_func import CorrFunction
 from universe import Cosmo
@@ -514,7 +514,7 @@ class BinPairwise(object):
 					 special.jv(1,ell * theta2)) / (ell * (theta1**2 - theta2**2))
 		# return (np.sqrt(2) * theta_R * special.jv(1, np.sqrt(2)*ell*theta_R) - theta_R * special.jv(1, ell*theta_R)) / (ell * theta_R**2)
 
-	def GetT_kSZ(self, M, z, theta_R, fwhm_arcmin=0., fid_v=300., profile='Battaglia'): # \muK
+	def GetT_kSZ(self, M, z, theta_R, fwhm_arcmin=0., fid_v=300., profile='Battaglia', lowpass=False): # \muK
 		"""
 		Returns the expected aperture-photometry estimated  kSZ temperature shift 
 		associated to an object of mass M (M_sun) and velocity fid_v at redshift z 
@@ -545,9 +545,9 @@ class BinPairwise(object):
 		T_kSZ : float
 			kSZ temperature shift [units :math: `\mu K`]
 		"""
-		return ClusterOpticalDepth(self.cosmo).GetApertureTau(M, z, theta_R, fwhm_arcmin=fwhm_arcmin, profile=profile) * fid_v / const.c.to('km/s').value * 2.725e6
+		return ClusterOpticalDepth(self.cosmo).GetApertureTau(M, z, theta_R, fwhm_arcmin=fwhm_arcmin, profile=profile, lowpass=lowpass) * fid_v / const.c.to('km/s').value * 2.725e6
 
-	def sigma_T_kSZ(self, theta_R, noise_uK_arcmin, fwhm_arcmin, lmax, lknee=1e-9, alpha=0., cmb=True, fg=None):
+	def sigma_T_kSZ(self, theta_R, noise_uK_arcmin, fwhm_arcmin, lmax=20000, lknee=1e-9, alpha=0., cmb=True, fg=None, lowpass=False):
 		"""
 		Returns the expected variance of the .
 
@@ -622,23 +622,30 @@ class BinPairwise(object):
 			fgs = 0.
 
 		# Summing up the MW sky components
-		C_ell = np.nan_to_num((cmb + fgs)* bl2 + nl) # + FG
+		C_ell = np.nan_to_num((cmb + fgs)* bl2 + nl)
+
+		# Smoothly filter out noisy scales below the beam
+		if lowpass:
+			l = np.arange(2,C_ell.size+2)
+			C_ell *= np.exp(-(l/(np.pi/np.radians(fwhm_arcmin/60.)))**4)
+
 		# plt.loglog(C_ell)
 		# plt.show()
+		
 		# integral = integrate.simps(ells * C_ell * self.W_AP(ells, theta_R)**2, x=ells) 
 		integrand = ells * C_ell * (self.W_disk(ells, theta_R)**2 + \
 									self.W_annulus(ells, theta_R)**2 - \
 									2*self.W_disk(ells, theta_R) * self.W_annulus(ells,theta_R))
 		# plt.loglog(ells, integrand)
-		plt.plot(ells, self.W_disk(ells, theta_R)**2 + self.W_annulus(ells, theta_R)**2 - 2*self.W_disk(ells, theta_R) * self.W_annulus(ells,theta_R))
+		# plt.plot(ells, self.W_disk(ells, theta_R)**2 + self.W_annulus(ells, theta_R)**2 - 2*self.W_disk(ells, theta_R) * self.W_annulus(ells,theta_R))
 		integral = (1./(2.*np.pi)) * integrate.simps(integrand, x=ells)
 
 		# return integral
 		return np.sqrt(integral)
 
-	def GetSigmaV(self, noise_uK_arcmin, fwhm_arcmin, z, theta_R=3., 
+	def GetSigmaV(self, noise_uK_arcmin, fwhm_arcmin, z, theta_R=3., lmax=20000,
 						Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., 
-						fg=False, M=None, profile='Battaglia'):
+						fg=False, M=None, profile='Battaglia', lowpass=False):
 		"""
 		Returns the error on the measured velocity given the uncertainty on the optical depth and the CMB survey specs, i.e. noise 'n' beam
 		We write the error on the measured velocity as
@@ -659,8 +666,8 @@ class BinPairwise(object):
 			M = optimize.brentq(f, self.M_min, self.M_max)
 			# print M
 
-		sigma_T_kSZ = self.sigma_T_kSZ(theta_R, noise_uK_arcmin, fwhm_arcmin, lmax=20000, lknee=lknee, alpha=alpha, fg=fg) 
-		T_kSZ = self.GetT_kSZ(M, theta_R, z, fwhm_arcmin=fwhm_arcmin, fid_v=fid_v, profile=profile)
+		sigma_T_kSZ = self.sigma_T_kSZ(theta_R, noise_uK_arcmin, fwhm_arcmin, lmax=lmax, lknee=lknee, alpha=alpha, fg=fg, lowpass=lowpass) 
+		T_kSZ = self.GetT_kSZ(M, theta_R, z, fwhm_arcmin=fwhm_arcmin, fid_v=fid_v, profile=profile, lowpass=lowpass)
 		# print sigma_T_kSZ/T_kSZ*fid_v, sigma_T_kSZ, T_kSZ, 
 		sigma_inst = (sigma_T_kSZ / T_kSZ) * fid_v
 		sigma_tau  = Delta_tau_over_tau * fid_v
@@ -669,8 +676,8 @@ class BinPairwise(object):
 
 
 	def GetS2N(self, noise_uK_arcmin, fwhm_arcmin, theta_R, 
-		             Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., fg=False, 
-		             cov_cosmic=None, cov_gauss_shot=None, M=None, profile='battaglia'):
+		             Delta_tau_over_tau=0.15, fid_v=300., lknee=1e-9, alpha=0., fg=False, lmax=20000, 
+		             cov_cosmic=None, cov_gauss_shot=None, M=None, profile='battaglia', lowpass=False):
 		"""
 		Returns the expected S/N of the kSZ detection.
 		"""
@@ -681,13 +688,13 @@ class BinPairwise(object):
 		if cov_gauss_shot is None:
 			cov_gauss_shot = self.Cov_gauss_shot().copy()
 
-		S2N = 0
+		S2N = 0.
 
 		# Loop over redshift bins
 		for idz in xrange(self.Nz):
 			sigma_v = self.GetSigmaV(noise_uK_arcmin, fwhm_arcmin, self.zmean[idz], theta_R=theta_R, 
-									 Delta_tau_over_tau=Delta_tau_over_tau, fid_v=fid_v, 
-									 lknee=lknee, alpha=alpha, fg=fg, M=M, profile=profile)
+									 Delta_tau_over_tau=Delta_tau_over_tau, fid_v=fid_v, lmax=lmax, 
+									 lknee=lknee, alpha=alpha, fg=fg, M=M, profile=profile, lowpass=lowpass)
 			# print sigma_v
 			# cov_meas = self.Cov_meas(500.)
 			cov_meas = self.Cov_meas(sigma_v)
@@ -700,8 +707,8 @@ class BinPairwise(object):
 			S2N = S2N + np.dot(self.V_Delta[idz], np.dot(inv_cov, self.V_Delta[idz]))	
 
 			# plt.errorbar(self.rmean, self.V_Delta[idz], yerr=np.sqrt(np.diag(cov[idz])))
-			plt.errorbar(self.rmean, self.V_Delta[idz], yerr=np.sqrt(np.diag(cov)))
-			plt.axhline(ls='--')
+			# plt.errorbar(self.rmean, self.V_Delta[idz], yerr=np.sqrt(np.diag(cov)))
+			# plt.axhline(ls='--')
 		return np.sqrt(S2N)
 
 
