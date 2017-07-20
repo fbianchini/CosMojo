@@ -1532,7 +1532,7 @@ class FisherPairwise(Fisher):
 
 		# Create a BinPairwise object initializied w/ fiducial cosmo + survey
 		print("...Computing fiducial pairwise...")
-		self.pw = BinPairwise(self.cosmo, self.zmin, self.zmax, self.Nz, self.rmin, self.rmax, self.Nr, fsky=self.fsky, M_min=self.M_min)
+		self.pw = BinPairwise(self.cosmo, self.zmin, self.zmax, self.Nz, self.rmin, self.rmax, self.Nr, fsky=self.fsky, M_min=self.M_min, M_max=self.M_max)
 		print("...done...")
 
 		# Precompute covariance matrices
@@ -1550,7 +1550,7 @@ class FisherPairwise(Fisher):
 				# self.cov_meas = self.pw.Cov_meas(self.sigma_v) # FIXME: make sigma_v dependent on other params such as tau
 				self.cov_meas = {}
 				for idz in xrange(self.pw.Nz):
-					self.cov_meas[idz] = self.pw.Cov_meas(self.pw.GetSigmaV(self.fid_surv['noise_uK_arcmin'], self.fid_surv['fwhm_arcmin'], self.pw.zmean[idz], theta_R=self.fid_surv['fwhm_arcmin'], fg=None))[idz]
+					self.cov_meas[idz] = self.pw.Cov_meas(self.pw.GetSigmaV(self.fid_surv['noise_uK_arcmin'], self.fid_surv['fwhm_arcmin'], self.pw.zmean[idz], theta_R=self.fid_surv['fwhm_arcmin'], fg=self.fid_surv['fg']))[idz]
 
 				# self.cov_meas = self.pw.Cov_meas(self.pw.GetSigmaV(self.noise_uK_arcmin, self.fwhm_arcmin, z, theta_R=self.fwhm_arcmin))[idz] # FIXME: make sigma_v dependent on other params such as tau
 			else:
