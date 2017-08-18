@@ -59,6 +59,7 @@ default_cosmoCLASS_dict = {
 
 default_pw_survey_dict = {
     'M_min'  : 1e14, # Minimum cluster mass in survey
+    'M_max'  : 1e16, # Maximum cluster mass in survey
     'fsky'   : 1.,   # Fraction of the sky
     'sigma_v': 160., # Uncertainties on velcity [km/s] ... it can be an array though!
     'zmin'   : 0.1,  # Minimum redshift
@@ -67,8 +68,8 @@ default_pw_survey_dict = {
     'rmin'   : 30.,  # Minimum separation scale [Mpc]
     'rmax'   : 250., # Maximum separation scale [Mpc]
     'Nr'     : 80,   # of r-bins
-    'b_tau'  : None  # optical depth bias
-    }
+    'b_tau'  : None, # optical depth bias
+    'fg'     : None    }
 
 default_cmb_survey_dict = {
     'fsky'   : 1.,      # Fraction of the sky
@@ -91,26 +92,33 @@ default_bao_survey_dict = {
 }
 
 default_limits = {
-    "limber_zmin"   : 0.,   ### 
-    "limber_zmax"   : None, ### If None, zstar (~1100) will be used
-    "limber_lmin"   : 2,
-    "limber_lmax"   : 2000,
-    "limber_kmax"   : 40.,
-    "dNdz_zmin"     : 0.,  
-    "dNdz_zmax"     : 5.,
-    "lens_zmax"     : 5.,
-    "pk_kmin"       : 1e-4, # 1/Mpc
-    "pk_kmax"       : 40.,  # 1/Mpc
-    "r_min"         : 1,    # Mpc
-    "r_max"         : 300,  # Mpc
-    "mass_min"      : -1,   #
-    "mass_max"      : -1    # 
+    "limber_zmin" : 0.,   ### 
+    "limber_zmax" : None, ### If None, zstar (~1100) will be used
+    "limber_lmin" : 2,
+    "limber_lmax" : 2000,
+    "limber_kmax" : 40.,
+    "dNdz_zmin"   : 0.,  
+    "dNdz_zmax"   : 5.,
+    "lens_zmax"   : 5.,
+    "pk_kmin"     : 1e-4, # 1/Mpc
+    "pk_kmax"     : 40.,  # 1/Mpc
+    "r_min"       : 1,    # Mpc
+    "r_max"       : 300,  # Mpc
+    "mass_min"    : -1,   #
+    "mass_max"    : -1,    # 
+    "halo_zmin"   : 5e-3,   ### 
+    "halo_zmax"   : 10, ### If None, zstar (~1100) will be used
+    "halo_lmin"   : 2,
+    "halo_lmax"   : 2000,
+    "halo_Mmin"   : 5e5,  # M_sun
+    "halo_Mmax"   : 5e15, # M_sun
 }
 
 default_precision = {
     "magbias_npts"  : 300,
     "lens_npts"     : 300,
     "limber_npts"   : 300,
+    "halo_npts"     : 300,
     "kernel_npts"   : 50,
     "corr_npts"     : 300,
     "dNdz_precision": 1.48e-8,

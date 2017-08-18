@@ -69,6 +69,9 @@ class Kernel(object):
 
 		return np.where(np.logical_and(z >= self.z_min, z <= self.z_max), self._wz_spline[i](z), 0.0)
 
+	def scal(self, l):
+		return 1.
+
 	def plot():
 		return NotImplemented
 
@@ -376,6 +379,46 @@ class LensGalTomo(Kernel):
 			# return integrate.simps(lens_integrand(z_), x=z_)
 		else:
 			return np.asarray([ self.W_lens(tz, i) for tz in z ])
+
+class iSW(Kernel):
+	""" 
+	Redshift kernel for integrated Sachs-Wolfe effect.
+	"""
+	def __init__(self, cosmo):
+		"""
+		Attributes
+		----------
+	    cosmo : Cosmo object (from universe.py)
+	        Cosmology object
+		"""
+		self.cosmo = cosmo
+
+		# self.fac = (3 * (self.cosmo.omegab+self.cosmo.omegac) * self.cosmo.H0**2.) / (const.c.to('km/s').value**3)  
+		self.fac = (3 * (self.cosmo.omegab+self.cosmo.omegac) * self.cosmo.H0**2.) / (const.c.to('km/s').value**2)  
+
+		# Calculate growth factor derivative
+		z = np.logspace(1e-5, np.log10(cosmo.zstar), 1000)
+		s = InterpolatedUnivariateSpline(z, self.cosmo.D_z(z)*(1+z))
+		self.der = s.derivative()
+	
+		super(iSW, self).__init__(1e-5, self.cosmo.zstar)
+
+	def scal(self, l):
+		# Scaling dependent on multipole *not* redshift 
+		return 1./(l+0.5)**2
+	
+	def raw_W_z(self, z, i=0):
+		"""
+		"""
+		# return self.fac * self.cosmo.f_K(z) * self.cosmo.H_z(z) * self.der(z)
+		return self.fac * self.cosmo.f_K(z)**2 * self.der(z)# * const.c.to('km/s').value
+		# return self.fac * self.cosmo.f_K(z)**2 * (1-self.cosmo.f_z(z))
+
+	def Delta_ell(self, z, ell=0):
+		return self.fac / (ell+0.5)**2 / const.c.to('km/s').value * self.cosmo.f_K(z) * self.cosmo.H_z(z) * self.der(z)
+
+	def plot_kernel(self, z, ell=0):
+		return self.Delta_ell(z, ell=ell) / np.sqrt(self.cosmo.H_z(z)*self.cosmo.f_K(z))
 
 # class Gals():
 # 	def __init__(self, cosmo, dndz, b=1., alpha=1., 

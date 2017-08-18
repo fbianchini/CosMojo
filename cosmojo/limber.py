@@ -92,8 +92,9 @@ class Limber(object):
 		kern = k1.W_z(self.zs, i) * k2.W_z(self.zs, j)
 		w    = np.ones(self.zs.shape)
 		Cl   = np.zeros(len(self.lrange))
+		scal = k1.scal(self.lrange) * k2.scal(self.lrange)
 
-		for i, L in enumerate(self.lrange):
+		for ell, L in enumerate(self.lrange):
 			# print i
 			k = (L+0.5)/self.chis
 			w[:] = 1
@@ -102,7 +103,7 @@ class Limber(object):
 			pkin = self.cosmo.pkz.P(self.zs, k, grid=False)
 			common = (w*pkin) * self.fac
     
-			Cl[i] = np.dot(self.dzs, common * kern)
+			Cl[ell] = np.dot(self.dzs, common * kern)
 			# Cl[i] = integrate.simps(common * kern, x=self.zs)
 
-		return Cl
+		return Cl * scal

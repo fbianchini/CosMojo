@@ -8,8 +8,10 @@ import astropy.units as u
 from photutils import CircularAperture, CircularAnnulus
 from photutils import aperture_photometry
 import matplotlib.pyplot as plt
+from numba import jit
 
 
+# @jit(nopython=True)
 def rho_fit_Battaglia16(x, M, z, x_c=0.5, gamma=-0.2, sim='AGN'): # unitless
 	"""
 	Average density profile as function of halo mass and redshift from Battaglia's model, 
@@ -76,6 +78,22 @@ def Tau(M, X_H=0.76, f_star=0.05, Omega_b=0.05, Omega_m=0.307, f_c=1.):
 	mu = 4./(3.*X_H+1+X_H*x_e)
 	f_b = Omega_b/Omega_m
 	return const.sigma_T.value * x_e * X_H * (1-f_star) * f_b * f_c * M / (mu * const.m_p.to('M_sun').value)
+
+# @jit(nopython=True)
+def pressure_fit_Battaglia12(x, M, z, alpha=1.0, gamma=-0.3):
+	"""
+	Average pressure profile as function of halo mass and redshift from Battaglia's model, 
+	see Eq.(10) of arXiv:1109.3711
+	! M_Delta in M_sun
+	#returns the pressure profile in keV/cm^3 at x=R/R200, for mass M200c in Msol, R200 in Mpc.
+	"""
+	P_0 = 18.1 * ((M/1e14)**0.154 * (1.+z)**-0.758)
+	x_c = 0.497 * ((M/1e14)**-0.00865 * (1.+z)**0.731)
+	beta = 4.35 * ((M/1e14)**0.0393 * (1.+z)**0.415)
+
+	x_over_xc = x / x_c
+
+	return P_0 * x_over_xc**gamma * (1.+(x_over_xc)**alpha)**(-beta)
 
 class ClusterOpticalDepth():
 
@@ -220,6 +238,65 @@ class ClusterOpticalDepth():
 
 	    return concentration
 
+class ClusterElectronicPressure():
+
+	def __init__(self, cosmo, mass_def=200.):
+
+		self.epsrel = 1.49e-6
+		self.epsabs = 0.
+		self.cosmo = cosmo
+		self.mass_def = mass_def
+		# self.concentration = concentration
+
+	def GetProfile1D(self, M, z, alpha=1.0, gamma=-0.3):
+		"""
+		Returns the 2D profile of the optical depth for a cluster of mass M (M_sun) at redshift z.
+		"""
+		rho_c_z = self.cosmo.rho_c(z) # [kg/m^3]
+		f_gas = self.cosmo.omegab/self.cosmo.omegam # we assume f_gas ~ f_baryon
+		# Radius such as M(< R_Delta) = Delta * rho_crit n stuff
+		r_v = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/rho_c_z)**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
+
+		P_Delta = self.mass_def * rho_c_z * f_gas * const.G.value * M*(u.Msun).to(u.kg) / 2. / r_v
+		P_th = P_Delta * pressure_fit_Battaglia12(x, M, z, alpha=alpha, gamma=gamma)
+
+		return P_th * 1.932
+
+	# @jit(nopython=True)
+	def y_ell(self, ell, M, z, npts=100):
+		'''
+		output: y_ell
+		'''
+		R200 = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/self.cosmo.rho_c(z))**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
+
+		c200 = self.c_Duffy(M,z)
+		R_s  = R200/c200
+		ells = self.cosmo.d_A(z)/R_s
+
+		xarr = np.logspace(-5,2,npts)
+		pressure_profile = pressure_fit_Battaglia12(xarr/c200, M, z)
+		arg = ((ell+0.5)*xarr/ells)
+		yell = integrate.simps(xarr**2 * np.sin(arg)/arg * pressure_profile, xarr)
+		yell *= 4*np.pi*(R_s) / ells**2
+		# yell *= sigma_T_cm2/rest_electron_kev *  4*np.pi*(R_s*Mpc2cm) / ells**2
+
+		return yell
+
+	# @np.vectorize
+	def c_Duffy(self, M, z):
+	    """
+	    Concentration from c(M) relation published in Duffy et al. (2008).
+	    """
+
+	    M_pivot = 2.e12/self.cosmo.h # [M_sun]
+	    
+	    A = 5.71
+	    B = -0.084
+	    C = -0.47
+
+	    concentration = A * ((M / M_pivot)**B) * (1+z)**C
+
+	    return concentration
 
 
 
