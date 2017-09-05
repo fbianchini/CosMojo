@@ -113,6 +113,36 @@ class LensCMB(Kernel):
 	# 	return self.fac * chi * (1.+self.cosmo.bkd.redshift_at_comoving_radial_distance(chi)) * ((self.xlss-chi/self.xlss))
 		# return (3.*(self.cosmo.bkd.Params.omegab+self.cosmo.bkd.Params.omegac)*self.cosmo.bkd.Params.H0**2 * (u.km).to(u.Mpc))/(2.*const.c.to('Mpc/s').value * self.chi * (1.+self.cosmo.bkd.redshift_at_comoving_radial_distance(chi)) * ((self.xlss-chi)/self.xlss)
 
+class CIB(Kernel):
+	"""
+	Redshift kernel for a CIB AT 500 micron
+
+	"""
+	def __init__(self, cosmo):
+		"""
+		Attributes
+		----------
+	    cosmo : Cosmo object (from universe.py)
+	        Cosmology object
+		"""
+		self.cosmo = cosmo
+		z, j_nu = np.loadtxt('/Users/fbianchini/Downloads/j_z_545GHz.dat.txt', unpack=1)
+
+		self.cib_interp = interpolate.interp1d(j_nu, z, bounds_error=False, fill_value=0.)
+
+		super(CIB, self).__init__(0., cosmo.zstar)
+
+	def W_z(self, z, i=0):
+		"""
+		Overwritten because we don't need to interpolate the CMB lensing window function
+		
+		Notes
+		-----
+		i = dummy argument 
+		"""
+		return self.cib_interp(z)
+
+
 class Gals(Kernel):
 	""" 
 	Redshift kernel for a galaxy survey.

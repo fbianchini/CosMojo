@@ -73,7 +73,11 @@ class Survey(object):
         #                           tol=default_precision["global_precision"],
         #                           rtol=default_precision["dNdz_precision"],
         #                           divmax=default_precision["divmax"])
-        norm = integrate.quad( self.raw_dndz, self.z_min, self.z_max, epsabs=0., epsrel=1e-5)[0]
+        norm = integrate.quad( self.raw_dndz, self.z_min, self.z_max, epsabs=0., epsrel=1e-5, points=[0.2,0.4,0.6,0.8,1.])[0]
+        # if norm == 0.:
+        #     print("!!!QUAD integration failed...resorting to Simpson...")
+        #     # norm = integrate.simps(self.raw_dndz(np.linspace(self.z_min,self.z_max)), x=np.linspace(self.z_min,self.z_max))
+        #     norm = integrate.quad( self.raw_dndz, self.z_min, 3., epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"])[0]
 
         self.norm = 1.0/norm
 
@@ -198,13 +202,22 @@ class Tomography(Survey):
         self.norm_bin = np.ones(self.nbins)
         for i in xrange(self.nbins):
             f = lambda z: self.raw_dndz_bin(z, i)
-            norm = integrate.quad(f, self.z_min, self.z_max, epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"])[0]
+
+            # norm = integrate.simps(f(np.linspace(self.z_min,self.z_max,1000)), x=np.linspace(self.z_min,self.z_max,1000))
+
+            # embed()
+            norm = integrate.quad(f, self.z_min, self.z_max, epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"], points=self.bounds[i])[0]
             # norm = integrate.romberg( f, self.z_min, self.z_max, vec_func=True,
             #                       tol=default_precision["global_precision"],
             #                       rtol=default_precision["dNdz_precision"],
             #                       divmax=default_precision["divmax"])
+            # if norm == 0.:
+            #     # print("!!!QUAD integration failed...resorting to Simpson...")
+            #     # norm = integrate.simps(f(np.linspace(self.z_min,self.z_max)), x=np.linspace(self.z_min,self.z_max))
+            #     norm = integrate.quad(f, self.z_min, 3., epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"])[0]
             # print norm 
             self.norm_bin[i] = 1.0/norm
+            print self.norm_bin[i]
 
     # @property
     def z_med_bin(self, i):

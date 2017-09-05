@@ -68,7 +68,7 @@ class Limber(object):
 		# Geometrical factors
 		self.fac = self.cosmo.H_z(self.zs) * (u.km).to(u.Mpc)/(self.cosmo.f_K(self.zs)**2 * const.c.to('Mpc/s').value)
 
-	def GetCl(self, k1, k2=None, i=0, j=0):
+	def GetCl(self, k1, k2=None, i=0, j=0, limb_fact=0.5):
 		"""
 		Returns the angular power spectrum C_l given the kernel k1 (and k2) objects
 
@@ -96,7 +96,7 @@ class Limber(object):
 
 		for ell, L in enumerate(self.lrange):
 			# print i
-			k = (L+0.5)/self.chis
+			k = (L+limb_fact)/self.chis
 			w[:] = 1
 			w[k<1e-4] = 0
 			w[k >= self.kmax] = 0

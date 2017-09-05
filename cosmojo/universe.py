@@ -200,6 +200,12 @@ class Cosmo(object):
 		"""
 		return  self.bkd.angular_diameter_distance(z)
 
+	def d_A12(self, z1, z2): # [Mpc]
+		""" 
+		Returns the angular diameter distance between redshift z1 and z2 [Mpc].
+		"""
+		return  self.bkd.angular_diameter_distance2(z1,z2)
+
 	def f_K(self, z): # [Mpc]
 		""" 
 		Returns the transverse comoving radial distance out to redshift z [Mpc].
