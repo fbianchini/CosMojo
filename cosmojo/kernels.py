@@ -115,20 +115,20 @@ class LensCMB(Kernel):
 
 class CIB(Kernel):
 	"""
-	Redshift kernel for a CIB AT 500 micron
-
+	Redshift kernel for CIB based on Bethermin+11 model 
 	"""
-	def __init__(self, cosmo):
+	def __init__(self, cosmo, nu):
 		"""
 		Attributes
 		----------
 	    cosmo : Cosmo object (from universe.py)
 	        Cosmology object
 		"""
+		assert (nu == 217.) or (nu == 353.) or (nu == 545.) or (nu == 857.)
 		self.cosmo = cosmo
-		z, j_nu = np.loadtxt('/Users/fbianchini/Downloads/j_z_545GHz.dat.txt', unpack=1)
+		z, j_nu = np.loadtxt('../data/cib_bethermin_2011_jbar/j_z_'+int(nu)+'GHz.dat.txt', unpack=1)
 
-		self.cib_interp = interpolate.interp1d(j_nu, z, bounds_error=False, fill_value=0.)
+		self.cib_interp = interpolate.interp1d(z, j_nu, bounds_error=False, fill_value=0.) # [Jy/Mpc/sr]
 
 		super(CIB, self).__init__(0., cosmo.zstar)
 
@@ -140,7 +140,7 @@ class CIB(Kernel):
 		-----
 		i = dummy argument 
 		"""
-		return self.cib_interp(z)
+		return  (const.c.to('km/s').value * self.cosmo.f_K(z) / self.cosmo.H_z(z)) * (self.cib_interp(z) / (self.cosmo.f_K(z) * (1+z)))
 
 
 class Gals(Kernel):
