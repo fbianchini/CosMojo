@@ -10,8 +10,8 @@ class Bubbles(object):
 					   # mass_func,
 					   lmin=default_limits['halo_lmin'], 
 					   lmax=default_limits['halo_lmax'], 
-					   zmin=default_limits['halo_zmin'], 
-					   zmax=default_limits['halo_zmax'], 
+					   zmin=0., 
+					   zmax=1100, 
 					   # kmin=default_limits['halo_Mmin'], 
 					   # kmax=default_limits['halo_Mmax'], 
 					   npts=default_precision['halo_npts'],
@@ -23,8 +23,6 @@ class Bubbles(object):
 		self.lmax  = lmax
 		self.npts  = npts
 		self.zmin  = zmin
-		self.Mmin  = Mmin
-		self.Mmax  = Mmax
 
 		if zmax is None:
 			self.zmax = self.cosmo.zstar
@@ -48,7 +46,7 @@ class Bubbles(object):
 		self.R_bar = 5
 		self.sigma_lnR = np.log(2)
 
-		self.kappas = np.logspace(-3,3,100)
+		self.kappas = np.logspace(-5,3,100)
 
 		self.spline_F_k = interpolate.interp1d(self.kappas, [self.F_k(k) for k in self.kappas])
 		self.spline_I_k = interpolate.interp1d(self.kappas, [self.I_k(k) for k in self.kappas])
@@ -91,7 +89,7 @@ class Bubbles(object):
 			return 1./(2.*np.pi)**3 * self.cosmo.pkz.P(z_, np.sqrt(np.abs(k_**2+kprime**2-2*mu*k_*kprime)),grid=False) * self.spline_F_k(kprime)
 
 		mus    = np.linspace(-1.,1,50)
-		kappas = np.logspace(-3,2,50)
+		kappas = np.logspace(-5,2,50)
 
 		integrand_k = np.empty(len(kappas))
 		for idxk, kappa in enumerate(kappas):
@@ -101,12 +99,6 @@ class Bubbles(object):
 			integrand_k[idxk] = integrate.simps(integrand_k_mu, x=mus)
 
 		return integrate.simps(integrand_k, x=kappas)
-
-		# options1 = {'limit': 4900, 'epsabs': 0., 'epsrel': 1.e-3}
-		# options2 = {'limit': 4900, 'epsabs': 0., 'epsrel': 1.e-3}
-
-		# return integrate.nquad(G_k_integrand, [[-1,1], [1e-5, 300]], args=(k,z), opts=[options1, options2])[0]
-
 
 	def P_k_bubble_2h(self, k, z,):
 
