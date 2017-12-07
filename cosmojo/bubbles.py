@@ -82,7 +82,6 @@ class Bubbles(object):
 		Rarr = np.logspace(-5,2)
 
 		return self.b*integrate.simps(num(Rarr,k),x=Rarr) / integrate.simps(den(Rarr),x=Rarr)
-		# return self.b * integrate.quad(num, 0., np.inf, args=(k), epsabs=0., epsrel=1.49e-03, limit=3500)[0] / integrate.quad(den, 0., np.inf, epsabs=0., epsrel=1.49e-03, limit=3500)[0]
 
 	def G_k(self, k, z):
 		def G_k_integrand(mu,kprime,k_,z_):
