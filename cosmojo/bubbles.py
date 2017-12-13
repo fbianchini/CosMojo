@@ -70,7 +70,6 @@ class Bubbles(object):
 		Rarr = np.logspace(-5,2)
 
 		return integrate.simps(num(Rarr,k),x=Rarr) / integrate.simps(den(Rarr),x=Rarr)
-		# return integrate.quad(num, 0., np.inf, args=(k), epsabs=0., epsrel=1.49e-03, limit=3500)[0] / integrate.quad(den, 0., np.inf, epsabs=0., epsrel=1.49e-03, limit=3500)[0]
 
 
 	def I_k(self, k):
@@ -116,7 +115,7 @@ class Bubbles(object):
 			x_e = self.cosmo.x_e(z)
 
 
-		return x_e * (1 - x_e) * (self.F_k(k) + self.G_k(k,z))
+		return x_e * (1 - x_e) * (self.spline_F_k(k) + self.G_k(k,z))
 
 	def P_k(self, k,z):
 		return self.P_k_bubble_1h(k, z) + self.P_k_bubble_2h(k, z)

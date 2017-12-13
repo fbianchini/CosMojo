@@ -40,7 +40,8 @@ class Limber(object):
 		               kmax=default_limits['limber_kmax'], 
 		               zmin=default_limits['limber_zmin'], 
 		               zmax=default_limits['limber_zmax'], 
-		               npts=default_precision['limber_npts']):
+		               npts=default_precision['limber_npts'],
+		               compute_at_z0=False):
 		
 		# !! FIXME: zmin and zmax not used at the moment
 		self.cosmo = cosmo
@@ -65,6 +66,11 @@ class Limber(object):
 		self.zs   = self.zs[1:-1]
 		self.chis = self.chis[1:-1]
 
+		if compute_at_z0 is False:
+			self.zs_pk = self.zs.copy()
+		else:
+			self.zs_pk = np.zeros_like(self.zs)
+
 		# Geometrical factors
 		self.fac = self.cosmo.H_z(self.zs) * (u.km).to(u.Mpc)/(self.cosmo.f_K(self.zs)**2 * const.c.to('Mpc/s').value)
 
@@ -88,6 +94,7 @@ class Limber(object):
 		"""
 		if k2 is None:
 			k2 = k1
+			j  = i
 
 		kern = k1.W_z(self.zs, i) * k2.W_z(self.zs, j)
 		w    = np.ones(self.zs.shape)
@@ -100,7 +107,7 @@ class Limber(object):
 			w[:] = 1
 			w[k<1e-4] = 0
 			w[k >= self.kmax] = 0
-			pkin = self.cosmo.pkz.P(self.zs, k, grid=False)
+			pkin = self.cosmo.pkz.P(self.zs_pk, k, grid=False)
 			common = (w*pkin) * self.fac
     
 			Cl[ell] = np.dot(self.dzs, common * kern)
