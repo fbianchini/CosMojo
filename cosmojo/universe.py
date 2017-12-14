@@ -113,7 +113,32 @@ class Cosmo(object):
 
 
 		# Initialize CAMB
-		pars = camb.set_params(**params)
+		# pars = camb.set_params(**params)
+		pars = camb.CAMBparams()
+		pars.set_cosmology(H0=params['H0'],
+						   ombh2=params['ombh2'],
+						   omch2=params['omch2'],
+						   omk=params['omk'],
+						   mnu=params['mnu'],
+						   tau=params['tau'],
+						   nnu=params['nnu'],
+						   TCMB=params['TCMB'],
+						   YHe=params['YHe'],
+						   meffsterile=params['meffsterile'],
+						   standard_neutrino_neff=params['standard_neutrino_neff'],
+						   num_massive_neutrinos=params['num_massive_neutrinos'],
+						   neutrino_hierarchy=params['neutrino_hierarchy'],
+						   deltazrei=params['deltazrei'])
+
+		pars.InitPower.set_params(As=params['As'], 
+								  ns=params['ns'],
+								  nrun=params['nrun'], 
+								  nrunrun=params['nrunrun'], 
+								  r=params['r'], 
+								  nt=params['nt'], 
+								  ntrun=params['ntrun'],
+                   				  pivot_scalar=params['pivot_scalar'], 
+                   				  pivot_tensor=params['pivot_tensor'],)
 
 		if self.params_dict['wa'] == 0.:
 			pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=0, dark_energy_model='fluid')
@@ -129,10 +154,10 @@ class Cosmo(object):
 		if params['r'] != 0:
 			pars.WantTensors = True
 
-		self.pars = pars
+		self.pars = pars.copy()
 
 		# Calculating (minimal) background quantities such as distances et al.
-		self.bkd = camb.get_background(self.pars)
+		self.bkd = camb.get_background(pars)
 
 		# Derived params
 		for parname, parval in self.bkd.get_derived_params().iteritems():
@@ -176,6 +201,22 @@ class Cosmo(object):
 		self.gamma0 = self.params_dict['gamma0']
 		self.gammaa = self.params_dict['gammaa']
 
+		# Get background quantities splines
+		chis = np.linspace(0., self.bkd.comoving_radial_distance(2000), 300)
+		zs   = self.bkd.redshift_at_comoving_radial_distance(chis)
+		zs[0] = 0.
+		res  = self.bkd.get_background_redshift_evolution(zs) 
+		self.spline_f_K = interpolate.UnivariateSpline(zs, [self.bkd.comoving_radial_distance(z) for z in zs], k=2)
+		self.spline_d_L = interpolate.UnivariateSpline(zs, [self.bkd.luminosity_distance(z) for z in zs], k=2)
+		self.spline_d_A = interpolate.UnivariateSpline(zs, [self.bkd.angular_diameter_distance(z) for z in zs], k=2)
+		self.spline_t_z = interpolate.UnivariateSpline(zs, [self.bkd.physical_time(z) for z in zs], k=2)
+		# self.spline_H_z = interpolate.UnivariateSpline(zs, [self.bkd.hubble_parameter(z) for z in zs], k=2)
+		self.spline_H_z = interpolate.interp1d(zs, [self.bkd.hubble_parameter(z) for z in zs],'linear') #UnivariateSpline(zs, [self.bkd.hubble_parameter(z) for z in zs], k=1)
+		self.spline_x_e = interpolate.interp1d(zs, res['x_e'], 'cubic')
+		self.spline_z_chi = interpolate.UnivariateSpline(chis, zs, k=2)
+
+		del pars, 
+
 	def rho_c(self, z): # [kg/m^3]
 		"""
 		Returns the critical density at redshift z [kg/m^3].
@@ -192,13 +233,13 @@ class Cosmo(object):
 		""" 
 		Returns the luminosity distance out to redshift z [Mpc]. 
 		"""
-		return  self.bkd.luminosity_distance(z)
+		return  self.spline_d_L(z)
 
 	def d_A(self, z): # [Mpc]
 		""" 
 		Returns the angular diameter distance out to redshift z [Mpc].
 		"""
-		return  self.bkd.angular_diameter_distance(z)
+		return  self.spline_d_A(z)
 
 	def d_A12(self, z1, z2): # [Mpc]
 		""" 
@@ -211,44 +252,43 @@ class Cosmo(object):
 		Returns the transverse comoving radial distance out to redshift z [Mpc].
 		FIXME: double check this definition
 		"""
-		return  self.bkd.comoving_radial_distance(z)
+		return  self.spline_f_K(z)
 
 	def t_z(self, z): # [Gyr]
 		""" 
 		Returns the age of the Universe at redshift z [Gyr].
 		"""
-		if np.isscalar(z) or (np.size(z) == 1):
-			return  self.bkd.physical_time(z)
-		else:
-			return np.asarray([ self.bkd.physical_time(tz) for tz in z ])
+		return  self.spline_t_z(z)
 
 	def H_a(self, a): # [km/s/Mpc]
 		""" 
 		Returns the hubble factor at scale factor a=1/(1+z) [km/s/Mpc]. 
 		"""
-		z = np.nan_to_num(1./a - 1.)
-		return self.H_z(z)
+		return self.spline_H_z(np.nan_to_num(1./a - 1.))
 
 	def H_z(self, z): # [km/s/Mpc]
 		""" 
 		Returns the hubble factor at redshift z [km/s/Mpc]. 
 		"""
-		if np.isscalar(z) or (np.size(z) == 1):
-			return  self.bkd.hubble_parameter(z)
-		else:
-			return np.asarray([ self.bkd.hubble_parameter(tz) for tz in z ])
+		return self.spline_H_z(z)
 
 	def H_x(self, x): # [km/s/Mpc] 
 		""" 
 		Returns the hubble factor at conformal distance x (in Mpc) [km/s/Mpc]. 
 		"""
-		return self.H_z( self.bkd.redshift_at_comoving_radial_distance(x) )
+		return self.spline_H_z(self.spline_z_chi)
 
 	def E_z(self, z): # [unitless]
 		""" 
 		Returns the unitless Hubble expansion rate at redshift z 
 		"""
 		return  self.H_z(z) / self.H0
+
+	def x_e(self, z): # [Mpc]
+		""" 
+		Returns the ionization fraction at redshift z .
+		"""
+		return  self.spline_x_e(z)
 
 	def D_z(self, z):
 		""" 
@@ -257,7 +297,17 @@ class Cosmo(object):
 		if np.isscalar(z) or (np.size(z) == 1):
 			return 2.5 * self.omegam * self.H_a(1./(1.+z)) / self.H0 * integrate.quad( lambda a : ( self.H0 / (a * self.H_a(a)) )**3, 0, 1./(1.+z) )[0] 
 		else:
-			return [ self.D_z(tz) for tz in z ]
+			return np.asarray([ self.D_z(tz) for tz in z ])
+
+	def D_z_norm(self, z, gamma0=0.55, gammaa=0.):
+		""" 
+		"""
+		if np.isscalar(z) or (np.size(z) == 1):
+			def func(x, gamma0, gammaa): 
+				return self.f_z(x, gamma0=gamma0,gammaa=gammaa)/(1+x)
+			return np.exp( -integrate.quad( func, 0, z, args=(gamma0,gammaa,))[0])
+		else:
+			return np.asarray([ self.D_z_norm(tz, gamma0=gamma0, gammaa=gammaa) for tz in z ])
 
 	def f_z(self, z, gamma0=None, gammaa=None): # [unitless]
 		"""
@@ -275,7 +325,7 @@ class Cosmo(object):
 		if gammaa is None: 
 			gammaa = self.gammaa
 
-		gamma = gamma0 - z/(1+z)*gammaa
+		gamma = gamma0 + z/(1+z)*gammaa
 
 		return (self.omegam*(1+z)**3/self.E_z(z)**2)**gamma
 
@@ -445,20 +495,14 @@ class Cosmo(object):
 			return [ self.k_NL(tz) for tz in z ]
 
 
-	def Dv_mz(self, z):
+	def Dv_cz(self, z):
 		""" 
-		Returns the virial overdensity w.r.t. the mean matter density redshift z. 
+		Returns the virial overdensity w.r.t. the mean critical density redshift z. 
 		Based on:
 	       * Bryan & Norman (1998) ApJ, 495, 80.
-	       * Hu & Kravtsov (2002) astro-ph/0203169 Eq. C6. 
 	    """
-		den = self.oml + self.omm * (1.0+z)**3 + self.omr * (1.0+z)**4
-		omm = self.omm * (1.0+z)**3 / den
-
-		omr = self.omr * (1.0+z)**4 / den
-		assert(omr < 1.e-2) # sanity check that omr is negligible at this redshift.
-
-		return (18.*np.pi**2 + 82.*(omm - 1.) - 39*(omm - 1.)**2) / omm
+		d = self.omegam*(1+z)**3/(self.omegam*(1+z)**3 + self.omegav) - 1.
+		return 18.*np.pi**2 + 82.*d - 39*d**2
 
 	# def aeq_lm(self):
 	# 	""" returns the scale factor at lambda - matter equality. """
