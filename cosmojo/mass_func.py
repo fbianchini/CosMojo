@@ -10,7 +10,7 @@ class MassFunction(object):
 
     A MassFunction object can return several quantities such as:
     - properly normalized halo abundance, dn/dM(M,z)
-    - halo bias as a function of halo mass or as a function of nu, b(M,z) or b(\nu,z) 
+    - halo bias as a function of halo mass or as a function of nu, b(M,z) or b(\nu,z)
     - ...
 
     Currently the HMF implemented is from Tinker+10 (see arXiv:1001.3162)
@@ -38,12 +38,12 @@ class MassFunction(object):
         self.delta_v = delta_v
 
         delta_virs = np.array([200, 300, 400, 600, 800, 1200, 1600, 2400, 3200])
-        
+
         if self.delta_v in delta_virs:
             index = np.where(delta_virs == self.delta_v)[0]
         else:
             raise ValueError("delta_halo = %s is invalid; must be one of %s" %(self.delta_v, delta_virs))
-        
+
         alpha_array = np.array([ 0.368,
                                  0.363,
                                  0.385,
@@ -83,7 +83,7 @@ class MassFunction(object):
                                -1.450,
                                -1.500,
                                -1.490])
-        
+
         eta_array = np.array([ -0.243,
                                -0.261,
                                -0.261,
@@ -93,14 +93,14 @@ class MassFunction(object):
                                -0.301,
                                -0.319,
                                -0.336 ])
-                               
+
         # interpolate between the delta_virs to get the correct value
         self.alpha_func = interpolate.InterpolatedUnivariateSpline(delta_virs, alpha_array)
         self.beta_func  = interpolate.InterpolatedUnivariateSpline(delta_virs, beta_array)
         self.gamma_func = interpolate.InterpolatedUnivariateSpline(delta_virs, gamma_array)
         self.phi_func   = interpolate.InterpolatedUnivariateSpline(delta_virs, phi_array)
         self.eta_func   = interpolate.InterpolatedUnivariateSpline(delta_virs, eta_array)
-        
+
         self.alpha_0 = self.alpha_func(self.delta_v)
         self.beta_0  = self.beta_func(self.delta_v)
         self.gamma_0 = self.gamma_func(self.delta_v)
@@ -169,7 +169,7 @@ class MassFunction(object):
     def _initialize_splines(self):
         # Nu spline
         self._nu_array = np.zeros((len(self._ln_mass_array),len(self._z_array)))
-        for idz, z in enumerate(self._z_array):            
+        for idz, z in enumerate(self._z_array):
             for idx in xrange(self._ln_mass_array.size):
                 mass = np.exp(self._ln_mass_array[idx])
                 self._nu_array[idx,idz] = self.cosmo.nu_M(mass, z=z)
@@ -180,9 +180,9 @@ class MassFunction(object):
         # # M(\nu,z) - logM <=> logNU at a given z
         # self._ln_mass_spline = interpolate.RectBivariateSpline(self._nu_array, self._ln_mass_array)
 
-        # HMF normalization spline  
+        # HMF normalization spline
         self._norm = np.zeros_like(self._z_array)
-        for idz, z in enumerate(self._z_array):            
+        for idz, z in enumerate(self._z_array):
             self._norm[idz] = self._normalize(z)
 
         self._norm_spline = interpolate.InterpolatedUnivariateSpline(self._z_array, self._norm)
@@ -197,8 +197,8 @@ class MassFunction(object):
         Un-normalized halo mass function as a function of normalized mass over-density nu and redshift z.
 
         Parameters
-        ----------   
-        nu: float 
+        ----------
+        nu: float
             Array normalized mass over-density nu
 
         Returns
@@ -218,15 +218,15 @@ class MassFunction(object):
         fnu = (1 + (beta*nu)**(-2*phi)) * nu**(2*eta) * np.exp(-gamma*(nu**2)/2)
         # fnu = self.alpha_0 * (1 + (beta*nu)**(-2*phi)) * nu**(2*eta) * np.exp(-gamma*(nu**2)/2)
 
-        return fnu 
+        return fnu
 
     def f_nu(self, nu, z):
         """
         Halo mass function as a function of normalized mass over-density nu and redshift z.
 
         Parameters
-        ----------   
-        nu: float array 
+        ----------
+        nu: float array
             Normalized mass over-density nu
 
         Returns
@@ -246,7 +246,7 @@ class MassFunction(object):
         Halo mass function as a function of halo mass
 
         Parameters
-        ----------   
+        ----------
         mass: float array
             Array halo mass [M_sun]
 
@@ -259,24 +259,24 @@ class MassFunction(object):
             Number of halos
         """
         return self.f_nu(self.nu(mass, z), z)
-    
+
     def dndm(self, M, z):
         """
         Convenience function for computing the number of halos per mass at a given redshift.
-        
+
         Parameters
-        ----------   
-        mass: float value or array 
+        ----------
+        mass: float value or array
             Halo mass [M_sun]
-    
+
         z : float
             Redshift
 
         Returns
         -------
-        dndm : float or array 
+        dndm : float or array
             Number of halos per mass per (Mpc)^3
-            
+
         """
         try:
             _dndm_ = np.empty(len(M))
@@ -313,13 +313,13 @@ class MassFunction(object):
         Product of dndm * dVdz
         """
         return self.dndlnm(M, z) * self.cosmo.dVdz(z)
-        
+
     def bias_M(self, M, z):
         """
         Halo bias as a function of mass.
 
         Parameters
-        ----------   
+        ----------
         mass: float array
             Array halo mass [M_sun]
 
@@ -338,7 +338,7 @@ class MassFunction(object):
         Halo bias as a function of normalized mass overdensity \nu (Eq.6 from 1001.3162)
 
         Parameters
-        ----------   
+        ----------
         nu: float array
             Array of normalized mass overdensity \nu
 
@@ -362,13 +362,13 @@ class MassFunction(object):
         Normalized mass overdensity as a function of halo mass and redshift
 
         Parameters
-        ----------   
-        mass : float or array 
+        ----------
+        mass : float or array
             halo mass [M_sun]
-        
+
         Returns
         --------
-        nu : float array 
+        nu : float array
             Normalized mass overdensity
         """
         return self._nu_spline.ev(np.log(mass), z)
@@ -402,7 +402,7 @@ class MassFunction(object):
         Args
         ----
         z: float or array
-            Redshift 
+            Redshift
 
         M_min: float
             Lower limit of mass integration [M_sun]
@@ -443,7 +443,7 @@ class MassFunction(object):
         Args
         ----
         z: float or array
-            Redshift 
+            Redshift
 
         M_min: float
             Lower limit of mass integration [M_sun]
@@ -499,8 +499,3 @@ class MassFunction(object):
     #         lnM_max = np.log(M_max)
 
     #     return integrate.dblquad(self.dndlmdz, z_min, z_max, lambda m: lnM_min, lambda m: lnM_max)[0]
-
- 
-
- 
-

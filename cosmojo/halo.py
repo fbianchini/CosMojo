@@ -5,14 +5,14 @@ from astropy import units as u
 from defaults import *
 
 class HaloModel(object):
-	def __init__(self, cosmo, 
+	def __init__(self, cosmo,
 					   mass_func,
-					   lmin=default_limits['halo_lmin'], 
-					   lmax=default_limits['halo_lmax'], 
-					   zmin=default_limits['halo_zmin'], 
-					   zmax=default_limits['halo_zmax'], 
-					   Mmin=default_limits['halo_Mmin'], 
-					   Mmax=default_limits['halo_Mmax'], 
+					   lmin=default_limits['halo_lmin'],
+					   lmax=default_limits['halo_lmax'],
+					   zmin=default_limits['halo_zmin'],
+					   zmax=default_limits['halo_zmax'],
+					   Mmin=default_limits['halo_Mmin'],
+					   Mmax=default_limits['halo_Mmax'],
 					   npts=default_precision['halo_npts'],
 					   lrange=None):
 
@@ -24,7 +24,6 @@ class HaloModel(object):
 		self.zmin  = zmin
 		self.Mmin  = Mmin
 		self.Mmax  = Mmax
-
 		if zmax is None:
 			self.zmax = self.cosmo.zstar
 		else:
@@ -32,7 +31,7 @@ class HaloModel(object):
 
 		# Multipoles interval
 		if lrange is None:
-			self.lrange = np.arange(self.lmin, self.lmax+1) 
+			self.lrange = np.arange(self.lmin, self.lmax+1)
 		else:
 			self.lrange = lrange
 
@@ -47,8 +46,8 @@ class HaloModel(object):
 		self.Ms = np.logspace(np.log10(self.Mmin), np.log10(self.Mmax), self.npts)
 
 		# Factors
-		self.dVdzdOmegas = const.c.to('km/s').value * (1+self.zs)**2 * self.cosmo.d_A(self.zs)**2. / self.cosmo.H_z(self.zs) 
-		self.dndms = np.asarray([self.mass_func.dndm(self.Ms, z) for z in self.zs]) 
+		self.dVdzdOmegas = const.c.to('km/s').value * (1+self.zs)**2 * self.cosmo.d_A(self.zs)**2. / self.cosmo.H_z(self.zs)
+		self.dndms = np.asarray([self.mass_func.dndm(self.Ms, z) for z in self.zs])
 		self.bs = np.asarray([self.mass_func.bias_M(self.Ms, z) for z in self.zs]) # each row is bias at given M
 
 	def GetCl(self, k1, k2=None, all_terms=False):
@@ -70,14 +69,14 @@ class HaloModel(object):
 		cl2h = self.GetCl2Halo(k1, k2=k2)
 
 		if all_terms:
-			return  cl1h + cl2h, cl1h, cl2h 
+			return  cl1h + cl2h, cl1h, cl2h
 		else:
 			return cl1h + cl2h
 
 	def GetCl1Halo(self, k1, k2=None):
 		Cl1h = np.zeros(len(self.lrange))
 
-		for i, L in enumerate(self.lrange):    
+		for i, L in enumerate(self.lrange):
 			M_int = self.GetCl1HaloMassInt(L, k1, k2=k2)
 			# Cl1h[i] = np.dot(self.dzs, M_int * self.dVdzdOmegas)
 			Cl1h[i] = integrate.simps( M_int * self.dVdzdOmegas, x=self.zs)
@@ -107,7 +106,7 @@ class HaloModel(object):
 
 		Cl2h = np.zeros(len(self.lrange))
 
-		for i, L in enumerate(self.lrange):    
+		for i, L in enumerate(self.lrange):
 			M_int1 = self.GetCl2HaloMassInt(L, k1)
 			if k1 == k2:
 				M_int2 = M_int1.copy()
@@ -129,10 +128,3 @@ class HaloModel(object):
 			# M_integral[idz] = np.dot(self.Ms, k1_int * self.bs[idz,:] * self.dndms[idz,:])
 
 		return M_integral
-
-
-
-
-
-
-

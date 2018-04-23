@@ -24,17 +24,17 @@ def m_int_nfw(x):
 
 def nfw_dimensionless_mass(x):
     """
-    The dimensionless function f(x) giving the mass enclosed within a 
-    dimensionless radius for an NFW profile. 
-    
+    The dimensionless function f(x) giving the mass enclosed within a
+    dimensionless radius for an NFW profile.
+
     Notes
     -----
     As given in Eq. C3 of Hu and Kravtsov 2002. Given by:
-    
-    ..math: f(x) = x^3 * [ ln(1 + 1/x) - 1/(1+x) ] 
-    
+
+    ..math: f(x) = x^3 * [ ln(1 + 1/x) - 1/(1+x) ]
+
     and the mass enclosed at radius r_h is:
-    
+
     ..math: M_h(r_h) = 4*\pi*rho_s*r_h^3 * f(r_s/r_h)
     """
     return x**3 * ( np.log(1. + 1./x) - 1./(1+x) )
@@ -42,7 +42,7 @@ def nfw_dimensionless_mass(x):
 # @jit(nopython=True)
 def rho_fit_Battaglia16(x, M, z, x_c=0.5, gamma=-0.2, sim='AGN'): # unitless
 	"""
-	Average density profile as function of halo mass and redshift from Battaglia's model, 
+	Average density profile as function of halo mass and redshift from Battaglia's model,
 	see Eq.(A1) of arXiv:1607.02442
 	! M_Delta in M_sun
 	"""
@@ -128,13 +128,13 @@ def c_Duffy(M, z, h, kind='200'):
 	"""
 
 	M_pivot = 2.e12/h # [M_sun]
-	
+
 	if kind == '200':
 		A = 5.71
 		B = -0.084
 		C = -0.47
 	elif kind == 'vir':
-		A = 7.85 
+		A = 7.85
 		B = -0.081
 		C = -0.71
 
@@ -142,16 +142,36 @@ def c_Duffy(M, z, h, kind='200'):
 
 	return concentration
 
+def c_SCP(M, z, h, kind='200'):
+	"""
+	Concentration from c(M) relation published in Sanchez-Conde & Prada (2014).
+	To be tested
+	"""
+
+	M_pivot = 1./h # [M_sun]
+
+	if kind == '200':
+		c_i=np.array([37.5153,-1.5093,1.636e-02,3.66e-4,-2.89237e-05,5.32e-7])
+		M_i=np.array([np.log(M)**i for i in range(6)])
+		c_200=np.dot(c_i,M_i)
+		C = -1
+	else :
+		raise ValueError ("Not implemented kind!=200 for c_SCP")
+
+	concentration = c_200 * (1+z)**C
+
+	return concentration
+
 def convert_halo_mass(mass, z, input_definition, output_definition, output_delta, cosmo):
     """
-    Convert between definitions of halo mass, assuming a NFW profile and the 
-    concentration relation from Duffy et al. 2008. 
-    
+    Convert between definitions of halo mass, assuming a NFW profile and the
+    concentration relation from Duffy et al. 2008.
+
     Notes
     -----
-    Input mass must be defined either wrt 200x crit density, 200x 
+    Input mass must be defined either wrt 200x crit density, 200x
     mean density, or virial radius.
-    
+
     Parameters
     ----------
     mass : {float, array_like}
@@ -165,28 +185,28 @@ def convert_halo_mass(mass, z, input_definition, output_definition, output_delta
     output_delta : float
         The desired overdensity for the output mass.
     params : {str, dict, Cosmology}
-        The cosmological parameters to use. Default is set by the value 
+        The cosmological parameters to use. Default is set by the value
         of ``parameters.default_params``
     """
     # mass = tools.vectorize(mass)
-    
+
     # if not isinstance(params, Cosmology):
     #     params = Cosmology(params)
-        
+
     # check the input defnitionas
     choices = ['critical', 'virial']
     if input_definition not in choices:
         raise ValueError("Input mass definition '%s' must be one of: %s" %(input_definition, choices))
     if output_definition not in choices:
         raise ValueError("Output mass definition '%s' must be one of: %s" %(output_definition, choices))
-    
+
     alpha_out = 1.
     if output_definition == 'critical':
         alpha_out = 1.
     elif output_definition == 'virial':
         alpha_out = 1.
         output_delta = cosmo.Dv_cz(z)
-        
+
     input_delta = 200.
     alpha_in = 1.
     if input_definition == 'critical':
@@ -202,26 +222,26 @@ def convert_halo_mass(mass, z, input_definition, output_definition, output_delta
 	    concen = c_Duffy(mass, z, cosmo.h, kind='vir')
 
     f_in = nfw_dimensionless_mass(1./concen)
-    
+
     def objective(x):
         return nfw_dimensionless_mass(x) - f_in*output_delta*alpha_out/(input_delta*alpha_in)
-    
+
     x_final = newton(objective, 1.)
     return (x_final*concen)**(-3.) * (alpha_out*output_delta) / (alpha_in*input_delta) * mass
-    
+
 #end convert_halo_mass
 
 #-------------------------------------------------------------------------------
 def convert_halo_radius(radius, z, input_definition, output_definition, output_delta, cosmo):
     """
-    Convert between definitions of halo radius, assuming a NFW profile and the 
-    concentration relation from Duffy et al. 2008. 
-    
+    Convert between definitions of halo radius, assuming a NFW profile and the
+    concentration relation from Duffy et al. 2008.
+
     Notes
     ------
-    Input radius must be defined either wrt 200x crit density, 200x 
+    Input radius must be defined either wrt 200x crit density, 200x
     mean density, or virial radius.
-    
+
     Parameters
     ----------
     radius : {float, array_like}
@@ -235,35 +255,35 @@ def convert_halo_radius(radius, z, input_definition, output_definition, output_d
     output_delta : float
         The desired overdensity for the output mass.
     params : {str, dict, Cosmology}
-        The cosmological parameters to use. Default is set by the value 
+        The cosmological parameters to use. Default is set by the value
         of ``parameters.default_params``
     """
     # radius = tools.vectorize(radius)
-    
+
     # if not isinstance(params, Cosmology):
     #     params = Cosmology(params)
-        
+
     rho_crit = self.critical_density(z, params=params) # h^2 Msun / Mpc^3
     om_m = omega_m_z(z, params=params)
     conversion_factor = 4./3*np.pi*rho_crit
-    
+
     # compute the input mass scale
     input_delta = 200.
     if input_definition == 'virial':
         input_delta = virial_overdensity(z, params=params)
-    
+
     alpha = 1.
     if input_definition == 'mean':
         alpha = om_m
     input_mass = conversion_factor * alpha * radius**3 * input_delta # in Msun/h
-        
+
     # now convert to an output mass
     output_mass = convert_halo_mass(input_mass, z, input_definition, output_definition, output_delta, params=params)
-    
+
     # now convert back to a radius
     if output_delta == 'virial':
         output_delta = virial_overdensity(z, params=params)
-    
+
     alpha = 1.
     if output_definition == 'mean':
         alpha = om_m
@@ -286,7 +306,7 @@ class ClusterOpticalDepth():
 		"""
 		Returns the 2D profile of the optical depth for a cluster of mass M (M_sun) at redshift z.
 		"""
-		theta_x,theta_y = np.meshgrid(np.arange(-theta_max,theta_max+reso,reso), np.arange(-theta_max,theta_max+reso,reso)) 
+		theta_x,theta_y = np.meshgrid(np.arange(-theta_max,theta_max+reso,reso), np.arange(-theta_max,theta_max+reso,reso))
 		theta = np.sqrt(theta_x**2+theta_y**2) # arcmin
 
 		d_A = self.cosmo.d_A(z) # [Mpc]
@@ -355,7 +375,7 @@ class ClusterOpticalDepth():
 		# rho -> tau
 		tau_theta = f_gas * rho_fit * norm_for_int * u.Mpc.to('m') * const.sigma_T.value * chi / (1.14*const.m_p.value)
 
-		# 1D -> 2D 
+		# 1D -> 2D
 		tau_theta = tau_theta.reshape(theta.shape)
 
 		# theta_R = R_Delta/d_A
@@ -414,7 +434,7 @@ class ClusterElectronicPressure():
 		"""
 		Returns the 2D profile of the compton Y for a cluster of mass M (M_sun) at redshift z.
 		"""
-		theta_x,theta_y = np.meshgrid(np.arange(-theta_max,theta_max+reso,reso), np.arange(-theta_max,theta_max+reso,reso)) 
+		theta_x,theta_y = np.meshgrid(np.arange(-theta_max,theta_max+reso,reso), np.arange(-theta_max,theta_max+reso,reso))
 		theta = np.sqrt(theta_x**2+theta_y**2) # arcmin
 
 		d_A = self.cosmo.d_A(z) # [Mpc]
@@ -435,7 +455,7 @@ class ClusterElectronicPressure():
 				return 2. * pressure_fit_Battaglia12(r/r_v, M, z, alpha=alpha, gamma=gamma) * ( r / np.sqrt(r**2. - R[ii]**2.) )
 			y_fit[ii] =  integrate.quad(integrand, R[ii], np.inf, epsabs=self.epsabs, epsrel=self.epsrel)[0]
 
-		y_fit *= P_Delta * Pth2Pe * u.M_sun.to(u.kg) * const.sigma_T.value / const.m_e.value / const.c.value**2 
+		y_fit *= P_Delta * Pth2Pe * u.M_sun.to(u.kg) * const.sigma_T.value / const.m_e.value / const.c.value**2
 
 		y_fit = y_fit.reshape(theta.shape)
 
@@ -457,11 +477,22 @@ class ClusterElectronicPressure():
 		P_th = P_Delta * pressure_fit_Battaglia12(x, M, z, alpha=alpha, gamma=gamma)
 
 		return P_th * Pth2Pe #[M_sun/Mpc/s^2]
+	def y_ell(self, ell, M, z, profile='arnaud', npts=100, xmax=100):
+		'''
+		Fourier transform of the Compton-y profile using differente electron pressure profiles
+		output: y_ell
+		'''
+		if profile is 'arnaud':
+			y_ell=self.y_ell_arnaud(ell, M, z, npts=npts, xmax=xmax)
+		elif profile is 'battaglia':
+			y_ell=self.y_ell_battaglia(ell, M, z, alpha=1.0, gamma=-0.3, X=0.76, npts=npts, xmax=xmax)
+		else: raise ValueError("Unknown profile type")
+		return y_ell
 
 	# @jit(nopython=True)
-	def y_ell(self, ell, M, z, alpha=1.0, gamma=-0.3, X=0.76, npts=100, xmax=100):
+	def y_ell_battaglia(self, ell, M, z, alpha=1.0, gamma=-0.3, X=0.76, npts=100, xmax=100):
 		'''
-		Fourier transform of the Compton-y 
+		Fourier transform of the Compton-y profile using Battaglia et al 2012 recipes.
 		output: y_ell
 		'''
 		R200 = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/self.cosmo.rho_c(z))**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
@@ -474,16 +505,39 @@ class ClusterElectronicPressure():
 		Pth2Pe = (2*X+2.)/(5*X+3)
 		rho_c_z = self.cosmo.rho_c(z) # [kg/m^3]
 		f_gas = self.cosmo.omegab/self.cosmo.omegam # we assume f_gas ~ f_baryon
-		r_v = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/rho_c_z)**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
-
+		#r_v = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/rho_c_z)**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
+		r_v = R200 # everything is done in R200
 		P_Delta = self.mass_def * rho_c_z * f_gas * const.G.value * M / 2. / r_v #[M_sun/Mpc/s^2]
 		# P_th = Pth2Pe * P_Delta * pressure_fit_Battaglia12(x, M, z, alpha=alpha, gamma=gamma)
 		pressure_profile = Pth2Pe * P_Delta * pressure_fit_Battaglia12(xarr/c200, M, z, alpha=alpha, gamma=gamma) #[M_sun/Mpc/s^2]
 		arg = ((ell+0.5)*xarr/ells)
 		yell = integrate.simps(xarr**2 * np.sin(arg)/arg * pressure_profile, xarr)
 		yell *= 4*np.pi*(R_s) / ells**2 #[Mpc]
-		yell *= u.M_sun.to(u.kg) * const.sigma_T.value / const.m_e.value / const.c.value**2 
+		yell *= u.M_sun.to(u.kg) * const.sigma_T.value / const.m_e.value / const.c.value**2
 
+		return yell
+
+	def y_ell_arnaud(self, ell, M, z, alpha_p=0, P_0=6.41, c500=1.81, alpha=1.0, beta=4.13, gamma=-0.31, npts=100, xmax=100):
+		'''
+		Fourier transform of the Compton-y using Arnaud et al. 2010 recipe.
+		output using: y_ell
+		'''
+		R500 = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/self.cosmo.rho_c(z))**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
+		#c200 = c_Duffy(M,z,self.cosmo.h)
+		c200 = 1 # Arnaud profile seems that it's in r/r500
+		R_s  = R500/c200 # [Mpc]
+		ells = self.cosmo.d_A(z)/R_s
+		pression_conversion = 1000*1.60218e-19*1e06 #convert keV/cm^3 -> J/m^3 = N/m
+		xarr = np.logspace(-5,np.log10(xmax),npts)
+		h_norm = 0.7/self.cosmo.h
+		p_x = P_0*h_norm**1.5/((c500*xarr)**gamma)/((1+(c500*xarr)**alpha)**((beta-gamma)/alpha))
+		pressure_profile = 1.65*pression_conversion*(h_norm**-2)*(self.cosmo.E_z(z)**(8./3))*((M/3.e14/h_norm)**(2./3. + alpha_p))*p_x
+		arg = ((ell+0.5)*xarr/ells)
+		yell = integrate.simps(xarr**2 * np.sin(arg)/arg * pressure_profile, xarr)
+		yell *= 4*np.pi*(R_s) / ells**2 #[Mpc]
+		yell *= u.M_sun.to(u.kg) * const.sigma_T.value / const.m_e.value / const.c.value**2
+		print yell
+		dasda
 		return yell
 
 class ClusterDensity():
@@ -501,6 +555,7 @@ class ClusterDensity():
 
 		zs = np.logspace(-3,1,1000)
 		self.nbar_spline = interpolate.interp1d(zs, [self.nbar(z, npts=50) for z in zs], bounds_error=False, fill_value=0.)
+		#self.nbar_spline = interpolate.interp1d(zs, [self.nbar(z, npts=50) for z in zs], bounds_error=False, fill_value="extrapolate") #GF add extrapolation option
 
 	def u_g_ell(self, ell, M, z, npts=100):
 		'''
@@ -555,7 +610,9 @@ class ClusterDensity():
 		return integrate.simps(self.hmf.dndm(Ms,z) * self.N_M(Ms), x=Ms)
 
 	def u_ell(self, ell, M, z, npts=100):
-		return self.u_g_ell(ell,m,z,npts=npts) * self.N_M(m) / self.nbar_spline(z)
+		one_over_nbar_spline_z = 0 if self.nbar_spline(z)<=0 else self.nbar_spline(z) #GF correction
+		#return self.u_g_ell(ell,M,z,npts=npts) * self.N_M(M) / self.nbar_spline(z)
+		return self.u_g_ell(ell,M,z,npts=npts) * self.N_M(M) * one_over_nbar_spline_z #GF  correction
 
 class ClusterLensing():
 
@@ -600,7 +657,7 @@ class ClusterLensing():
 		rho_c_z = self.cosmo.rho_c(z)# * u.kg/u.m**3# [kg/m^3]
 
 		R = np.radians(theta/60.) * d_A # [Mpc]
-			
+
 		rho_fit = np.zeros_like(R)
 
 		# Radius such as   M(< R_Delta) = Delta * rho_crit n stuff
@@ -658,7 +715,7 @@ class ClusterLensing():
 			for ii in range(len(R)):
 				rho_fit[ii] =  integrate.quad(lambda r : (2. / ( (r/r_s)**gamma * ( 1 + (r/r_s)**(3-gamma) ) ) ) * ( r / np.sqrt(r**2. - R[ii]**2.) ), R[ii], np.inf, epsabs=self.epsabs, epsrel=self.epsrel)[0]
 
-		# rho 
+		# rho
 		rho = rho_fit * norm_for_int * u.Mpc.to('m')
 
 		# # Apply beam smoothing
@@ -675,7 +732,7 @@ class ClusterLensing():
 
 		d_A = self.cosmo.d_A(z)  # [Mpc]
 		rho_m_z = self.cosmo.rho_bar(z=z) * u.M_sun.to('kg') / u.Mpc.to('m')**3 # [kg/m^3]
-		bias = self.hmf.bias_M(M, z)			
+		bias = self.hmf.bias_M(M, z)
 		Sigma_crit = self.SigmaCritical(z) # [kg/m^2]
 		fact = rho_m_z * bias  / (1+z)**3 / Sigma_crit / d_A**2 / 2./ np.pi / u.m.to('Mpc') # 1 / Mpc^3
 
@@ -701,7 +758,7 @@ class ClusterLensing():
 		if fwhm_arcmin != 0.:
 			kappa_2h = convolve(kappa_2h, btheta (fwhm_arcmin, theta),)
 
-			# plt.plot(ell, integrand)			
+			# plt.plot(ell, integrand)
 
 		return kappa_2h * fact, theta_vir
 
@@ -723,8 +780,8 @@ class ClusterLensing():
 
 		rho_s = c_vir**3 * M / (4. * np.pi * R_vir**3 * m_int_nfw(c_vir)) * (u.Msun).to(u.kg) / (u.Mpc).to(u.m)**3  # [kg/m^3]
 
-		nfw = lambda x:  1. / ( x*(1+x)**2. ) # [unitless] ... x = r/R_s 
-		
+		nfw = lambda x:  1. / ( x*(1+x)**2. ) # [unitless] ... x = r/R_s
+
 		density_profile = nfw(xarr) * rho_s # [kg/m^3]
 
 		arg = ((ell+0.5)*xarr/ells)
@@ -756,7 +813,7 @@ class ClusterLensing():
 		nfw = lambda x:  1. / ( x*(1+x)**2. ) # [unitless]
 		density_profile = nfw(xarr) * norm # [kg/m^3]
 
-		# nfw = lambda r:  1. / ( r * (R_s + r )**2. ) # [1/Mpc^3]		
+		# nfw = lambda r:  1. / ( r * (R_s + r )**2. ) # [1/Mpc^3]
 		# norm = delta_c * self.cosmo.rho_c(z) * R_s**3. #[kg/m^3 Mpc^3]
 		# density_profile = nfw(xarr/c200) * norm # [kg/m^3]
 
@@ -769,5 +826,3 @@ class ClusterLensing():
 		'''
 
 		return phiell
-
-
