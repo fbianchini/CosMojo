@@ -257,37 +257,36 @@ def convert_halo_radius(radius, z, input_definition, output_definition, output_d
     params : {str, dict, Cosmology}
         The cosmological parameters to use. Default is set by the value
         of ``parameters.default_params``
+	output_radius: The output radius in [units :math: `Mpc h^{-1}`]
     """
     # radius = tools.vectorize(radius)
 
     # if not isinstance(params, Cosmology):
     #     params = Cosmology(params)
 
-    rho_crit = self.critical_density(z, params=params) # h^2 Msun / Mpc^3
-    om_m = omega_m_z(z, params=params)
+    rho_crit = cosmo.rho_c(z) # in kg/m^3
+    om_m = cosmo.rho_bar(z)*u.M_sun.to('kg') / u.Mpc.to('m')**3 # in kg/m^3
     conversion_factor = 4./3*np.pi*rho_crit
 
     # compute the input mass scale
-    input_delta = 200.
-    if input_definition == 'virial':
-        input_delta = virial_overdensity(z, params=params)
-
+    if input_definition == 'critical':	input_delta = 200.
+    if input_definition == 'virial':	input_delta = cosmo.Dv_cz(z) # to be checked output units
     alpha = 1.
-    if input_definition == 'mean':
-        alpha = om_m
-    input_mass = conversion_factor * alpha * radius**3 * input_delta # in Msun/h
+    if input_definition == 'mean':	alpha = om_m
+
+    input_mass = conversion_factor * alpha * (radius*u.Mpc.to('m'))**3 * input_delta*u.kg.to('M_sun') # in Msun/h
 
     # now convert to an output mass
-    output_mass = convert_halo_mass(input_mass, z, input_definition, output_definition, output_delta, params=params)
+    output_mass = convert_halo_mass(input_mass, z, input_definition, output_definition, output_delta, cosmo) # in Msun/h
 
     # now convert back to a radius
     if output_delta == 'virial':
-        output_delta = virial_overdensity(z, params=params)
-
+        output_delta = cosmo.Dv_cz(z)
+	if output_definition=='critical': output_delta=output_delta
     alpha = 1.
     if output_definition == 'mean':
         alpha = om_m
-    output_radius = (output_mass / (conversion_factor * alpha * output_delta) )**(1./3)
+    output_radius = u.m.to('Mpc')*(output_mass*u.M_sun.to('kg') / (conversion_factor * alpha * output_delta) )**(1./3)
 
     return output_radius
 #end convert_halo_radius
@@ -522,22 +521,22 @@ class ClusterElectronicPressure():
 		Fourier transform of the Compton-y using Arnaud et al. 2010 recipe.
 		output using: y_ell
 		'''
-		R500 = (((M*(u.Msun).to(u.kg)/(self.mass_def*4.*np.pi/3.))/self.cosmo.rho_c(z))**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
-		#c200 = c_Duffy(M,z,self.cosmo.h)
-		c200 = 1 # Arnaud profile seems that it's in r/r500
-		R_s  = R500/c200 # [Mpc]
+		if self.mass_def!=500: # Arnaud profile is computed in terms of M_500. 
+			M_500= convert_halo_mass(M,z,'critical','critical',500,self.cosmo)
+		else: M_500=M
+		R500 = (((M_500*(u.Msun).to(u.kg)/(500*4.*np.pi/3.))/self.cosmo.rho_c(z))**(1./3.))*(u.m).to(u.Mpc) # [Mpc]
+		R_s  = R500 # [Mpc] # Arnaud profile works in r/r500
 		ells = self.cosmo.d_A(z)/R_s
-		pression_conversion = 1000*1.60218e-19*1e06 #convert keV/cm^3 -> J/m^3 = N/m
+		m2Mpc= 3.2408e-23 # conoverts m to Mpc
+		pression_conversion = 1.60218e-19*1e06/(m2Mpc**2) #convert eV/cm^3 -> J/m^3 = N/m^2 - > N/Mpc^2
 		xarr = np.logspace(-5,np.log10(xmax),npts)
 		h_norm = 0.7/self.cosmo.h
-		p_x = P_0*h_norm**1.5/((c500*xarr)**gamma)/((1+(c500*xarr)**alpha)**((beta-gamma)/alpha))
-		pressure_profile = 1.65*pression_conversion*(h_norm**-2)*(self.cosmo.E_z(z)**(8./3))*((M/3.e14/h_norm)**(2./3. + alpha_p))*p_x
+		p_x = P_0*(h_norm**1.5)/((c500*xarr)**gamma)/((1+(c500*xarr)**alpha)**((beta-gamma)/alpha))
+		pressure_profile = 1.65*pression_conversion*(h_norm**-2)*(self.cosmo.E_z(z)**(8./3))*((M_500/3.e14/h_norm)**(2./3. + alpha_p))*p_x
 		arg = ((ell+0.5)*xarr/ells)
 		yell = integrate.simps(xarr**2 * np.sin(arg)/arg * pressure_profile, xarr)
 		yell *= 4*np.pi*(R_s) / ells**2 #[Mpc]
-		yell *= u.M_sun.to(u.kg) * const.sigma_T.value / const.m_e.value / const.c.value**2
-		print yell
-		dasda
+		yell *= m2Mpc*const.sigma_T.value / const.m_e.value / const.c.value**2 # extra factor m2Mpc convertss N=Kg * m / s^2 -> kg*Mpc/s^2 so that y is dimensionless
 		return yell
 
 class ClusterDensity():

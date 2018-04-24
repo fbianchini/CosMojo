@@ -26,7 +26,7 @@ class MassFunction(object):
     nz : int
         Number of points to interpolate functions
     """
-    def __init__(self, cosmo, delta_v=200, nz=50, verbose=False, **kws):
+    def __init__(self, cosmo, delta_v=200, nz=50, verbose=False, do_interpolation=True, **kws):
         self.cosmo = cosmo
         self.delta_c = self.cosmo.delta_c()
         self.nz = nz
@@ -38,11 +38,11 @@ class MassFunction(object):
         self.delta_v = delta_v
 
         delta_virs = np.array([200, 300, 400, 600, 800, 1200, 1600, 2400, 3200])
-
-        if self.delta_v in delta_virs:
-            index = np.where(delta_virs == self.delta_v)[0]
-        else:
-            raise ValueError("delta_halo = %s is invalid; must be one of %s" %(self.delta_v, delta_virs))
+        if not do_interpolation: # use only value of Tinker mass function without interpolation
+            if self.delta_v in delta_virs: # could be commented
+                index = np.where(delta_virs == self.delta_v)[0]
+            else:
+                raise ValueError("delta_halo = %s is invalid; must be one of %s" %(self.delta_v, delta_virs))
 
         alpha_array = np.array([ 0.368,
                                  0.363,
