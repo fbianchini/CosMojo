@@ -8,6 +8,9 @@ from utils import W_k_tophat, V_sphere
 class Bubbles(object):
 	def __init__(self, cosmo, 
 					   # mass_func,
+					   b=6.,
+					   R_bar=5.,
+					   sigma_lnR=np.log(2), 
 					   lmin=default_limits['halo_lmin'], 
 					   lmax=default_limits['halo_lmax'], 
 					   zmin=0., 
@@ -42,17 +45,19 @@ class Bubbles(object):
 		self.zs   = self.zs[1:-1]
 		self.chis = self.chis[1:-1]
 
-		self.b = 1.
-		self.R_bar = 5
+		self.b = b
+		self.R_bar = R_bar
 		self.sigma_lnR = np.log(2)
 
-		self.kappas = np.logspace(-5,3,100)
+		self.kmax = self.cosmo.kmax
+		self.kappas = np.logspace(-5,np.log10(self.kmax),300)
 
-		self.spline_F_k = interpolate.interp1d(self.kappas, [self.F_k(k) for k in self.kappas])
-		self.spline_I_k = interpolate.interp1d(self.kappas, [self.I_k(k) for k in self.kappas])
+		self.spline_F_k = interpolate.InterpolatedUnivariateSpline(self.kappas, [self.F_k(k) for k in self.kappas])#, 'cubic')
+		self.spline_I_k = interpolate.InterpolatedUnivariateSpline(self.kappas, [self.I_k(k) for k in self.kappas])#, 'cubic')
 
 		# Geometrical factors
-		self.fac = self.cosmo.H_z(self.zs) * (u.km).to(u.Mpc)/(self.cosmo.f_K(self.zs)**2 * const.c.to('Mpc/s').value)
+		self.fac = const.c.to('Mpc/s').value / (self.cosmo.H_z(self.zs) * (u.km).to(u.Mpc))/(self.chis**2) * (1+self.zs)**4
+		# self.fac = self.cosmo.H_z(self.zs) * (u.km).to(u.Mpc)/(self.cosmo.f_K(self.zs)**2 * const.c.to('Mpc/s').value)
 
 	def P_R(self, R):#, R_bar=None, sigma_lnR=None):
 		# if R_bar is None:
@@ -67,7 +72,7 @@ class Bubbles(object):
 		num = lambda x,k: self.P_R(x) * V_sphere(x)**2 * W_k_tophat(k*x)**2
 		den = lambda y: self.P_R(y) * V_sphere(y)
 
-		Rarr = np.logspace(-5,2)
+		Rarr = np.logspace(-5,3,1000)
 
 		return integrate.simps(num(Rarr,k),x=Rarr) / integrate.simps(den(Rarr),x=Rarr)
 
@@ -78,7 +83,7 @@ class Bubbles(object):
 		num = lambda x,k: self.P_R(x) * V_sphere(x) * W_k_tophat(k*x)
 		den = lambda y: self.P_R(y) * V_sphere(y)
 
-		Rarr = np.logspace(-5,2)
+		Rarr = np.logspace(-5,3,1000)
 
 		return self.b*integrate.simps(num(Rarr,k),x=Rarr) / integrate.simps(den(Rarr),x=Rarr)
 
@@ -87,7 +92,7 @@ class Bubbles(object):
 			return 1./(2.*np.pi)**3 * self.cosmo.pkz.P(z_, np.sqrt(np.abs(k_**2+kprime**2-2*mu*k_*kprime)),grid=False) * self.spline_F_k(kprime)
 
 		mus    = np.linspace(-1.,1,50)
-		kappas = np.logspace(-5,2,50)
+		kappas = np.logspace(-5,np.log10(self.kmax),50)
 
 		integrand_k = np.empty(len(kappas))
 		for idxk, kappa in enumerate(kappas):
@@ -105,7 +110,7 @@ class Bubbles(object):
 		else:
 			x_e = self.cosmo.x_e(z)
 
-		return ((1 - x_e) * np.log(1 - x_e) * self.I_k(k) - x_e)**2 * self.cosmo.pkz.P(z,k,grid=False)
+		return ((1. - x_e) * np.log(1. - x_e) * self.spline_I_k(k) - x_e)**2 * self.cosmo.pkz.P(z,k,grid=False)
 
 
 	def P_k_bubble_1h(self, k, z):
@@ -117,6 +122,7 @@ class Bubbles(object):
 
 		return x_e * (1 - x_e) * (self.spline_F_k(k) + self.G_k(k,z))
 
+	@np.vectorize
 	def P_k(self, k,z):
 		return self.P_k_bubble_1h(k, z) + self.P_k_bubble_2h(k, z)
 
@@ -129,10 +135,8 @@ class Bubbles(object):
 		----------
 		"""
 
-		kern = k1.W_z(self.zs, i) * k2.W_z(self.zs, j)
 		w    = np.ones(self.zs.shape)
 		Cl   = np.zeros(len(self.lrange))
-		scal = k1.scal(self.lrange) * k2.scal(self.lrange)
 
 		for ell, L in enumerate(self.lrange):
 			# print i
@@ -140,10 +144,10 @@ class Bubbles(object):
 			w[:] = 1
 			w[k<1e-4] = 0
 			w[k >= self.kmax] = 0
-			pkin = self.cosmo.pkz.P(self.zs_pk, k, grid=False)
+			pkin = np.asarray([self.P_k(k,_z_) for _z_ in self.zs])#self.cosmo.pkz.P(self.zs_pk, k, grid=False)
 			common = (w*pkin) * self.fac
     
 			Cl[ell] = np.dot(self.dzs, common * kern)
 			# Cl[i] = integrate.simps(common * kern, x=self.zs)
 
-		return Cl * scal
+		return Cl

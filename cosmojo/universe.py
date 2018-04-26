@@ -66,6 +66,43 @@ def GuessH0(_100thetaMC, params, xtol=1e-5):
 
 	return optimize.brentq(Get100Theta, 30., 100., xtol=xtol)
 
+def GuessAs(sigma8, params, xtol=1e-5):
+	"""
+	Returns H0 given the 100\theta, the angular size of the sound horizon at the time of recombination, 
+	and the other params through the Brent method.
+	"""
+	# for key, val in params.iteritems():
+	# 	print key, val
+
+	for key, val in default_cosmo_dict.iteritems():
+		params.setdefault(key,val)
+
+	# Initialize CAMB
+	# pars = camb.set_params(**params_ini)
+	pars = camb.CAMBparams()
+	# print pars.H0
+
+	pars.WantTransfer = 1
+
+	if params['wa'] == 0.:
+		pars.set_dark_energy(w=params['w'], cs2=params['cs2'], wa=0, dark_energy_model='fluid')
+	else:
+		pars.set_dark_energy(w=params['w'], cs2=params['cs2'], wa=params['wa'], dark_energy_model='ppf')
+
+	pars.set_cosmology(H0=params['H0'], ombh2=params['ombh2'], omch2=params['omch2'], tau=params['tau'], mnu=params['mnu'], nnu=params['nnu'], omk=params['omk'])
+
+	def GetSigma8(As):
+		pars.InitPower.set_params(As=10**As, ns=params['ns'], r=params['r'])
+		# pars.set_cosmology(H0=H0)
+		# print pars.H0
+		results = camb.get_results(pars)
+		sigma8_ = results.get_sigma8()[0]
+		# print As, pars.InitPower.ScalarPowerAmp[0]
+		# print sigma8_
+		return sigma8_ - sigma8
+
+	return 10**optimize.brentq(GetSigma8, -10, -8, xtol=xtol)
+
 class Cosmo(object):
 	""" 
 	Class to encapsulate cosmological paramters and quantities. 
@@ -80,7 +117,7 @@ class Cosmo(object):
 
 	TODO: add reionization parameters, add w_a
 	"""
-	def __init__(self, params=None, lmax=5000, **kwargs): 
+	def __init__(self, params=None, lmax=5000, cmbonly=False, **kwargs): 
 
 		self.lmax = lmax
 
@@ -137,8 +174,8 @@ class Cosmo(object):
 								  r=params['r'], 
 								  nt=params['nt'], 
 								  ntrun=params['ntrun'],
-                   				  pivot_scalar=params['pivot_scalar'], 
-                   				  pivot_tensor=params['pivot_tensor'],)
+								  pivot_scalar=params['pivot_scalar'], 
+								  pivot_tensor=params['pivot_tensor'],)
 
 		if self.params_dict['wa'] == 0.:
 			pars.set_dark_energy(w=self.params_dict['w'], cs2=self.params_dict['cs2'], wa=0, dark_energy_model='fluid')
@@ -171,51 +208,54 @@ class Cosmo(object):
 
 		self.pars.NonLinear_lens = 0
 
-		for kw in kwargs:
-			if kw == 'pk_kmin':
-				self.kmin = kwargs[kw]
-			if kw == 'pk_kmax':
-				self.kmax = kwargs[kw]
-			if kw == 'NonLinear' or kw == 'nonlinear':
-				nonlinear = True
-				camb.set_halofit_version('takahashi') # FIXME: let the user choose which NL prescription
-			if kw == 'NonLinearLens' or kw == 'nonlinearlens':
-				self.pars.NonLinear_lens = 2
-				print 'yeah'
+		if not cmbonly:
+			for kw in kwargs:
+				if kw == 'pk_kmin':
+					self.kmin = kwargs[kw]
+				if kw == 'pk_kmax':
+					self.kmax = kwargs[kw]
+				if kw == 'NonLinear' or kw == 'nonlinear':
+					nonlinear = True
+					camb.set_halofit_version('takahashi') # FIXME: let the user choose which NL prescription
+				if kw == 'NonLinearLens' or kw == 'nonlinearlens':
+					self.pars.NonLinear_lens = 2
+					print 'yeah'
 
-		self.pkz = camb.get_matter_power_interpolator(self.pars, nonlinear=nonlinear, hubble_units=False, k_hunit=False, kmax=self.kmax, zmax=self.zstar)
+			self.pkz = camb.get_matter_power_interpolator(self.pars, nonlinear=nonlinear, hubble_units=False, k_hunit=False, kmax=self.kmax, zmax=self.zstar)
 
-		# Shortcuts for few params 
-		self.omegab = self.pars.omegab
-		self.omegac = self.pars.omegac
-		self.omegam = self.omegab + self.omegac
-		self.omegav = self.pars.omegav
-		self.omegak = self.pars.omegak
-		self.H0     = self.pars.H0
-		self.h      = self.H0/100.
-		self.ns     = self.pars.InitPower.an[0]
-		self.As     = self.pars.InitPower.ScalarPowerAmp[0]
-		self.r      = self.pars.InitPower.rat[0]
-		self.w      = self.params_dict['w']
-		self.wa     = self.params_dict['wa']
-		self.gamma0 = self.params_dict['gamma0']
-		self.gammaa = self.params_dict['gammaa']
+			# Shortcuts for few params 
+			self.omegab = self.pars.omegab
+			self.omegac = self.pars.omegac
+			self.omegam = self.omegab + self.omegac
+			self.omegav = self.pars.omegav
+			self.omegak = self.pars.omegak
+			self.H0     = self.pars.H0
+			self.h      = self.H0/100.
+			self.ns     = self.pars.InitPower.an[0]
+			self.As     = self.pars.InitPower.ScalarPowerAmp[0]
+			self.r      = self.pars.InitPower.rat[0]
+			self.w      = self.params_dict['w']
+			self.wa     = self.params_dict['wa']
+			self.gamma0 = self.params_dict['gamma0']
+			self.gammaa = self.params_dict['gammaa']
 
-		# Get background quantities splines
-		chis = np.linspace(0., self.bkd.comoving_radial_distance(2000), 300)
-		zs   = self.bkd.redshift_at_comoving_radial_distance(chis)
-		zs[0] = 0.
-		res  = self.bkd.get_background_redshift_evolution(zs) 
-		self.spline_f_K = interpolate.UnivariateSpline(zs, [self.bkd.comoving_radial_distance(z) for z in zs], k=2)
-		self.spline_d_L = interpolate.UnivariateSpline(zs, [self.bkd.luminosity_distance(z) for z in zs], k=2)
-		self.spline_d_A = interpolate.UnivariateSpline(zs, [self.bkd.angular_diameter_distance(z) for z in zs], k=2)
-		self.spline_t_z = interpolate.UnivariateSpline(zs, [self.bkd.physical_time(z) for z in zs], k=2)
-		# self.spline_H_z = interpolate.UnivariateSpline(zs, [self.bkd.hubble_parameter(z) for z in zs], k=2)
-		self.spline_H_z = interpolate.interp1d(zs, [self.bkd.hubble_parameter(z) for z in zs],'linear') #UnivariateSpline(zs, [self.bkd.hubble_parameter(z) for z in zs], k=1)
-		self.spline_x_e = interpolate.interp1d(zs, res['x_e'], 'cubic')
-		self.spline_z_chi = interpolate.UnivariateSpline(chis, zs, k=2)
+			# Get background quantities splines
+			chis = np.linspace(0., self.bkd.comoving_radial_distance(2000), 300)
+			zs   = self.bkd.redshift_at_comoving_radial_distance(chis)
+			zs[0] = 0.
+			res  = self.bkd.get_background_redshift_evolution(zs) 
+			self.spline_f_K = interpolate.UnivariateSpline(zs, [self.bkd.comoving_radial_distance(z) for z in zs], k=2)
+			self.spline_d_L = interpolate.UnivariateSpline(zs, [self.bkd.luminosity_distance(z) for z in zs], k=2)
+			self.spline_d_A = interpolate.UnivariateSpline(zs, [self.bkd.angular_diameter_distance(z) for z in zs], k=2)
+			self.spline_t_z = interpolate.UnivariateSpline(zs, [self.bkd.physical_time(z) for z in zs], k=2)
+			# self.spline_H_z = interpolate.UnivariateSpline(zs, [self.bkd.hubble_parameter(z) for z in zs], k=2)
+			self.spline_H_z = interpolate.interp1d(zs, [self.bkd.hubble_parameter(z) for z in zs],'linear') #UnivariateSpline(zs, [self.bkd.hubble_parameter(z) for z in zs], k=1)
+			self.spline_x_e = interpolate.interp1d(zs, res['x_e'], 'cubic')
+			self.spline_z_chi = interpolate.UnivariateSpline(chis, zs, k=2)
 
-		del pars, 
+			del pars, 
+		else:
+			pass
 
 	def rho_c(self, z): # [kg/m^3]
 		"""
@@ -499,8 +539,8 @@ class Cosmo(object):
 		""" 
 		Returns the virial overdensity w.r.t. the mean critical density redshift z. 
 		Based on:
-	       * Bryan & Norman (1998) ApJ, 495, 80.
-	    """
+		   * Bryan & Norman (1998) ApJ, 495, 80.
+		"""
 		d = self.omegam*(1+z)**3/(self.omegam*(1+z)**3 + self.omegav) - 1.
 		return 18.*np.pi**2 + 82.*d - 39*d**2
 

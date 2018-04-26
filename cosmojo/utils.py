@@ -212,6 +212,18 @@ def f_sz(nu, T_cmb=2.725):
 	x = h_planck*1e9*nu / k_B / T_cmb
 	return x*(np.exp(x) + 1.) / (np.exp(x) - 1.) - 4.0
 
+def g_sz(nu, T_cmb=2.725):
+	"""
+	The frequency dependence of the thermal SZ effect
+	
+	Parameters
+	----------
+	nu : float or array
+		the frequency in GHz
+	"""
+	x = h_planck*1e9*nu / k_B / T_cmb
+	return x**4 * np.exp(x) / (np.exp(x)-1)**2 * f_sz(nu, T_cmb=T_cmb)
+
 def GHz_to_lambda(ghz):
 	"""
 	Converts from GHz to wavelenght (in micron)
@@ -269,6 +281,9 @@ def W_Delta(k, Rmin, Rmax):
 
 def V_bin(r, dr):
 	return np.pi/3. * (dr * (dr**2 + 12*r**2))
+
+def V_sphere(r):
+	return 4.*np.pi/3.*r**3
 
 def Diameter2Theta(D, nu):
 	""" 

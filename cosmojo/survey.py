@@ -203,19 +203,19 @@ class Tomography(Survey):
         for i in xrange(self.nbins):
             f = lambda z: self.raw_dndz_bin(z, i)
 
-            # norm = integrate.simps(f(np.linspace(self.z_min,self.z_max,1000)), x=np.linspace(self.z_min,self.z_max,1000))
+            norm = integrate.simps(f(np.linspace(self.z_min,self.z_max,1000)), x=np.linspace(self.z_min,self.z_max,1000))
 
             # embed()
-            norm = integrate.quad(f, self.z_min, self.z_max, epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"], points=self.bounds[i])[0]
-            # norm = integrate.romberg( f, self.z_min, self.z_max, vec_func=True,
-            #                       tol=default_precision["global_precision"],
-            #                       rtol=default_precision["dNdz_precision"],
-            #                       divmax=default_precision["divmax"])
+            # norm = integrate.quad(f, self.z_min, self.z_max, epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"], points=self.bounds[i])[0]
+            # # norm = integrate.romberg( f, self.z_min, self.z_max, vec_func=True,
+            # #                       tol=default_precision["global_precision"],
+            # #                       rtol=default_precision["dNdz_precision"],
+            # #                       divmax=default_precision["divmax"])
             # if norm == 0.:
-            #     # print("!!!QUAD integration failed...resorting to Simpson...")
-            #     # norm = integrate.simps(f(np.linspace(self.z_min,self.z_max)), x=np.linspace(self.z_min,self.z_max))
-            #     norm = integrate.quad(f, self.z_min, 3., epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"])[0]
-            # print norm 
+            #     print("!!!QUAD integration failed...resorting to Simpson...")
+            #     norm = integrate.simps(f(np.linspace(self.z_min,self.z_max)), x=np.linspace(self.z_min,self.z_max))
+            #     # norm = integrate.quad(f, self.z_min, 3., epsabs=default_precision["global_precision"], epsrel=default_precision["dNdz_precision"])[0]
+            # # print norm 
             self.norm_bin[i] = 1.0/norm
             print self.norm_bin[i]
 
@@ -228,8 +228,8 @@ class Tomography(Survey):
             self._z_med_bin = np.zeros(self.nbins)
             for i in xrange(self.nbins):
                 u = lambda y: self.dndz_bin(y, i)
-                f = lambda x: integrate.romberg(u, self.bins[i][0], x) - 0.5
-                self._z_med_bin[i] = brentq(f, self.bins[i][0], self.bins[i][1])
+                f = lambda x: integrate.romberg(u, self.bounds[i][0], x) - 0.5
+                self._z_med_bin[i] = brentq(f, self.bounds[i][0], self.bounds[i][1])
 
         return self._z_med_bin[i]
 
@@ -419,6 +419,58 @@ class dNdzInterpolation(Tomography):
     def raw_dndz(self, z):
         return self._p_of_z(z)
 
+class dNdzInterpolationSurvey(Survey):
+    """
+    Derived class for a p(z) derived from real data assuming:
+    - array of redshifts 
+    - dN/dz (or probabilities) for each redshift
+
+    Attributes
+    ----------
+    z_array   : float 
+        Array of redshifts
+    
+    dndz_array: float 
+        Array of weights
+
+    z_min : float 
+        Minimum redshift considered in the survey
+
+    z_max : float
+        Maximum redshift considered in the survey    
+
+    b_zph : float
+        Photo-z error bias
+
+    sigma_zph : float
+        Photo-z error scatter (=> sigma_zph * (1+z))
+
+    nbins : float
+        Number of equally spaced redshift bins to consider
+
+    bins : array-like
+        List of redshift bins edges (=> [z_min, z_1, z_2, ..., z_n, ..., z_max])
+
+    Notes
+    -----
+    * Either you input nbins *OR* bins
+    """
+
+    def __init__(self, z_array, dndz_array,
+                       z_min=default_limits['dNdz_zmin'], 
+                       z_max=default_limits['dNdz_zmax'],
+                       b_zph=0., 
+                       sigma_zph=0.):
+
+        self.z_array    = z_array
+        self.dndz_array = dndz_array
+
+        self._p_of_z = interpolate.interp1d(z_array, dndz_array, bounds_error=False, fill_value=0.)
+
+        super(dNdzInterpolation, self).__init__(z_min, z_max, b_zph, sigma_zph, nbins, bins)
+
+    def raw_dndz(self, z):
+        return self._p_of_z(z)
 
 
 # def catalog2dndz(z_cat, zbins=(0., 10.), sigma=0.26, bias=0, nbins=30):

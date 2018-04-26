@@ -3,7 +3,7 @@ from scipy import linalg
 from astropy import constants as const
 from defaults import *
 from utils import nl_cmb
-from universe import Cosmo, GuessH0
+from universe import Cosmo, GuessH0, GuessAs
 from pairwise import BinPairwise
 import copy
 import matplotlib.pyplot as plt
@@ -22,7 +22,8 @@ Labels = {'omch2'   : r'$\Omega_c h^2$',
 		  'YHe'     : r'$Y_{\rm He}$',
 		  '100theta': r'$100\theta_{\rm MC}$',
 		  'gamma0'  : r'$\gamma_0$',
-		  'gammaa'  : r'$\gamma_a$'}
+		  'gammaa'  : r'$\gamma_a$',
+		  'sigma8'  : r'$\sigma_8$'}
 
 class Fisher(object):
 	def __init__(self, fid_cosmo=None, 
@@ -411,6 +412,9 @@ class FisherBAO(Fisher):
 		if '100theta' in self.params:
 			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
+		if 'sigma8' in self.params:
+			fid_cosmo['As'] = GuessAs(fid_cosmo['sigma8'], params=fid_cosmo)
+
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
 
@@ -437,6 +441,9 @@ class FisherBAO(Fisher):
 	def _computeObservables(self, par_cosmo):
 		if '100theta' in par_cosmo:
 			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+
+		if 'sigma8' in par_cosmo:
+			par_cosmo['As'] = GuessAs(par_cosmo['sigma8'], params=par_cosmo)
 
 		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
 
@@ -662,6 +669,9 @@ class FisherCMB(Fisher):
 		if '100theta' in self.params:
 			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
+		if 'sigma8' in self.params:
+			fid_cosmo['As'] = GuessAs(fid_cosmo['sigma8'], params=fid_cosmo)
+
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
 
@@ -684,11 +694,12 @@ class FisherCMB(Fisher):
 		if 'KK' in self.obs:
 			# Assumes nlkk_ starts from l = 0
 			if path_file_NLKK is None:
-				l_, nlkk_ = np.loadtxt('../data/nlkk_cmb_s4_1muK_2fwhm_lmax2500.dat', unpack=True)
+				l_, nlkk_ = np.loadtxt('../data/nlkk_cmb_s4_1muK_2fwhm_lmax2500.dat', unpack=True, usecols=[0,1])
 				nlkk_ = np.interp(np.arange(self.lmax+1), l_, nlkk_, left=0., right=0.)
 				# l_, nlkk_ = np.loadtxt('../data/nlkk_planck2015.dat', unpack=True)
 			else:
-				l_, nlkk_ = np.loadtxt(path_file_NLKK, unpack=True)
+				l_, nlkk_ = np.loadtxt(path_file_NLKK, unpack=True, usecols=[0,1])
+				nlkk_ = np.interp(np.arange(self.lmax+1), l_, nlkk_, left=0., right=0.)
 			# self.NlKK[:nlkk_.size] = nlkk_
 			self.NlKK = nlkk_
 			self.NlKK[:self.lminK] = 1.e40
@@ -774,6 +785,10 @@ class FisherCMB(Fisher):
 	def _computeObservables(self, par_cosmo):
 		if '100theta' in par_cosmo:
 			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+
+		if 'sigma8' in par_cosmo:
+			par_cosmo['As'] = GuessAs(par_cosmo['sigma8'], params=par_cosmo)
+
 		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
 
 	def _computeFullMatrix(self):
@@ -1035,6 +1050,9 @@ class MultiFisherCMB(object):
 		if '100theta' in self.params:
 			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
+		if 'sigma8' in self.params:
+			fid_cosmo['As'] = GuessAs(fid_cosmo['sigma8'], params=fid_cosmo)
+
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
 
@@ -1098,6 +1116,10 @@ class MultiFisherCMB(object):
 	def _computeObservables(self, par_cosmo):
 		if '100theta' in par_cosmo:
 			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+
+		if 'sigma8' in par_cosmo:
+			par_cosmo['As'] = GuessAs(par_cosmo['sigma8'], params=par_cosmo)
+
 		return Cosmo(params=par_cosmo).cmb_spectra(self.lmax, spec='lensed_scalar', dl=False)
 
 	def _computeDerivatives(self):
@@ -1527,6 +1549,9 @@ class FisherPairwise(Fisher):
 		if '100theta' in self.params:
 			fid_cosmo['H0'] = GuessH0(fid_cosmo['100theta'], params=fid_cosmo)
 
+		if 'sigma8' in self.params:
+			fid_cosmo['As'] = GuessAs(fid_cosmo['sigma8'], params=fid_cosmo)
+
 		# Create a Cosmo object with a copy of the fiducial cosmology
 		self.cosmo = Cosmo(params=fid_cosmo)
 
@@ -1624,6 +1649,9 @@ class FisherPairwise(Fisher):
 	def _computeObservables(self, par_cosmo, par_sur):
 		if '100theta' in par_cosmo:
 			par_cosmo['H0'] = GuessH0(par_cosmo['100theta'], par_cosmo)
+
+		if 'sigma8' in par_cosmo:
+			par_cosmo['As'] = GuessAs(par_cosmo['sigma8'], params=par_cosmo)
 
 		if par_cosmo == self.fid_cosmo:
 			_cosmo = copy.copy(self.cosmo)
